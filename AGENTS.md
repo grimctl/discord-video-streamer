@@ -1,17 +1,21 @@
 # AGENTS.md
 
 ## Purpose
+Instructions for coding agents working in this repository.
+This repo is intentionally small. Keep changes narrow, explicit, and robust.
+Prefer KISS over cleverness. Favor clean stop behavior over fragile recovery.
 
-Guidance for coding agents working in this repository.
+## Extra Rule Files
+At the time this file was written, the repo contains none of the following:
+- no `.cursor/rules/`
+- no `.cursorrules`
+- no `.github/copilot-instructions.md`
+If any of those appear later, treat them as additional instructions and keep
+this file aligned with them.
 
-This repo is intentionally small. Keep changes minimal, operationally safe, and
-easy to reason about. Prefer robustness and long-term maintainability over new
-features or abstraction.
-
-## Repository Snapshot
-
+## Repo Overview
 - Runtime: Node.js 24
-- Language: TypeScript with ESM (`"type": "module"`)
+- Language: TypeScript with ESM
 - Package manager: npm
 - Tool bootstrap: `mise`
 - Media tools: pinned FFmpeg/FFprobe
@@ -19,116 +23,50 @@ features or abstraction.
 - Stream lifecycle: `src/stream-session.ts`
 - Config loading: `src/config.ts`
 - Probe helpers: `src/probe.ts`
+- Logging: `src/logger.ts`
 - Health snapshot: `src/health.ts`
-- Healthcheck entrypoint: `src/healthcheck.ts`
-
-## Additional Agent Rule Files
-
-At the time this file was created, this repository does not contain any of the
-following rule sources:
-
-- no `.cursor/rules/`
-- no `.cursorrules`
-- no `.github/copilot-instructions.md`
-
-If any of those files appear later, treat them as additional instructions and
-keep this file aligned with them.
+- Healthcheck CLI: `src/healthcheck.ts`
 
 ## Core Principles
-
-- Keep diffs narrow and task-focused.
+- Keep diffs small and task-focused.
 - Preserve the single-process, single-stream design.
-- Do not reintroduce removed tooling like pre-commit, pnpm, Biome, or Nix
+- Do not reintroduce removed tooling like pnpm, Biome, pre-commit, or Nix
   unless explicitly requested.
-- Favor explicit state transitions and clear logs over hidden automation.
-- Prefer simple operational behavior over clever recovery logic.
-- If a voice or session edge case is messy, stopping cleanly is often better
-  than adding fragile self-healing behavior.
+- Prefer explicit state transitions and readable logs.
+- Stop cleanly on awkward edge cases instead of layering complex recovery.
+- Keep operational behavior deterministic.
 
 ## Setup Commands
-
-Install toolchain with `mise`:
-
-```bash
-mise install
-```
-
-Install Node dependencies:
-
-```bash
-mise run install
-# or
-npm ci
-```
-
-Create a local config file:
-
-```bash
-cp config/example.jsonc config.jsonc
-```
-
-Never commit `config.jsonc` or real Discord tokens.
+Install tools: `mise install`
+Install deps: `mise run install` or `npm ci`
+Create local config: `cp config/example.jsonc config.jsonc`
+Never commit `config.jsonc`, Discord tokens, or secret-bearing local files.
 
 ## Build / Run / Check Commands
-
 Run from source:
-
 ```bash
 mise run dev
 # or
 npm run dev
 ```
-
-Build TypeScript:
-
+Build:
 ```bash
 mise run build
 # or
 npm run build
 ```
-
-Typecheck only:
-
-```bash
-npm run typecheck
-```
-
-Run the main validation command:
-
+Typecheck only: `npm run typecheck`
+Main validation command:
 ```bash
 mise run check
 # or
 npm run check
 ```
+Run built app: `mise run start` or `npm run start`
+Run healthcheck: `npm run healthcheck` or `node build/healthcheck.js`
+Build Docker image: `mise run docker:build` or `docker build -t discord-video-streamer .`
 
-Run the built app:
-
-```bash
-mise run start
-# or
-npm run start
-```
-
-Run the healthcheck entrypoint:
-
-```bash
-npm run healthcheck
-# or
-node build/healthcheck.js
-```
-
-## Docker Commands
-
-Build image locally:
-
-```bash
-mise run docker:build
-# or
-docker build -t discord-video-streamer .
-```
-
-Run long-term with restart policy:
-
+## Docker Runtime Command
 ```bash
 docker run -d \
   --name discord-video-streamer \
@@ -138,178 +76,124 @@ docker run -d \
 ```
 
 ## CI-Equivalent Smoke Checks
-
-The repository has no unit test framework right now. The closest equivalents to
-tests are smoke checks.
-
-Main smoke command:
-
+This repo currently has no unit/integration test framework.
+Use these smoke checks instead:
 ```bash
 npm run check
-```
-
-Startup validation using placeholder config (expected failure mentioning the
-placeholder token):
-
-```bash
 node build/index.js config/example.jsonc
-```
-
-Container smoke checks:
-
-```bash
 docker run --rm discord-video-streamer:test ffmpeg -version
 docker run --rm discord-video-streamer:test ffprobe -version
 docker run --rm discord-video-streamer:test node build/index.js config/example.jsonc
 ```
+The placeholder-config startup checks are expected to fail and mention the
+placeholder token.
 
 ## Single-Test Guidance
-
-There is currently no `npm test`, no Jest/Vitest, and no per-test runner.
-
-- Do not assume a hidden test framework exists.
-- There is no true "single test" command yet.
-- For targeted validation, run the smallest relevant smoke command:
+There is no `npm test` and no single-test runner today.
+- Do not assume Jest, Vitest, or another framework exists.
+- There is no true "run one test" command yet.
+- For targeted validation, run the smallest relevant command:
   - `npm run typecheck`
   - `node build/index.js config/example.jsonc`
   - `node build/healthcheck.js` with a prepared health snapshot
+If a real test framework is added later, update this file with exact commands
+for all tests, watch mode, a single file, and a single case.
 
-If a real test framework is added later, update this file with commands for:
-
-- all tests
-- watch mode
-- a single test file
-- a single test case
-
-## Code Layout
-
-- `src/index.ts`: process startup, Discord client, commands, gateway handling
-- `src/stream-session.ts`: stream lifecycle, retries, voice handling, heartbeat
+## Source Map
+- `src/index.ts`: startup, Discord client wiring, commands, gateway handling
+- `src/stream-session.ts`: retries, voice handling, stream state, heartbeat
 - `src/config.ts`: config defaults, validation, env overrides
-- `src/probe.ts`: ffprobe and ffmpeg input option helpers
+- `src/probe.ts`: ffprobe and ffmpeg input options
 - `src/logger.ts`: structured console logger
 - `src/health.ts`: health snapshot write/read helpers
-- `src/healthcheck.ts`: healthcheck CLI
+- `src/healthcheck.ts`: Docker/container healthcheck CLI
 - `config/example.jsonc`: documented config template
 
 ## Formatting Rules
-
 - Use 2-space indentation.
 - Use double quotes.
 - Use semicolons consistently.
-- Keep functions readable rather than compressed.
-- Wrap long calls and objects similarly to existing source files.
-- Prefer ASCII unless the file already contains Unicode that should be kept.
-- Avoid adding comments unless they explain a non-obvious operational detail.
+- Keep line length reasonable; wrap long calls and object literals clearly.
+- Prefer ASCII unless an existing file already uses Unicode meaningfully.
+- Add comments only when they explain a non-obvious operational constraint.
 
 ## Import Rules
-
 - Group imports in this order:
   1. Node built-ins
   2. third-party packages
   3. local modules
-- Use `import type` when only importing types.
-- For local TypeScript imports, include the `.js` extension in source files.
-- Remove unused imports; do not leave dead import clutter.
+- Use `import type` for type-only imports where appropriate.
+- For local TypeScript imports, include the `.js` extension.
+- Remove unused imports.
 
-## TypeScript Rules
-
+## Type Rules
 - Preserve `strict` TypeScript.
 - Preserve `noUncheckedIndexedAccess` compatibility.
 - Add explicit types for exported functions and important helpers.
-- Prefer narrow object types and unions over `any`.
-- Use `unknown` for caught errors and normalize with helper functions.
+- Prefer narrow types and small helper types over `any`.
+- Use `unknown` for caught errors and normalize them before logging.
 - Avoid non-null assertions unless there is no reasonable alternative.
-- Keep public runtime state explicit instead of inferred through side effects.
 
 ## Naming Conventions
-
 - Classes and types: `PascalCase`
 - Functions, methods, variables: `camelCase`
-- Constants: use `UPPER_SNAKE_CASE` only for true constants
-- Config keys should remain human-readable and stable
-- Use names that describe behavior, e.g. `mediaStallTimeoutMs`,
-  `retryInitialDelayMs`, `buildHealthSnapshot`
+- Constants: `UPPER_SNAKE_CASE` only for true constants
+- Config keys: stable, readable, JSON-friendly names
+- Prefer operationally descriptive names like `mediaStallTimeoutMs`
 
 ## Error Handling
-
 - Throw `Error` with actionable messages.
-- Fail fast on invalid config or unrecoverable runtime states.
-- Use `try`/`catch`/`finally` around stream, process, and voice cleanup paths.
+- Fail fast on invalid config and unrecoverable runtime states.
+- Use `try`/`catch`/`finally` around cleanup-sensitive code.
 - Swallow errors only during cleanup and only intentionally.
-- Convert unknown errors with a local `formatError()` helper before logging.
-- Prefer clean stop/disconnect behavior over complicated partial recovery.
+- Prefer clean stop/disconnect behavior over partial recovery complexity.
 
 ## Logging and Observability
-
-- Use the logger wrapper, not ad hoc `console.log` statements.
-- Keep logs structured: message plus JSON context object.
-- Use `info` for major lifecycle events:
-  - startup
-  - command handling
-  - state transitions
-  - stream attempts
-  - gateway/session changes
-- Use `debug` for noisy internals:
-  - probe results
-  - ffmpeg command lines
-  - codec data
-  - expected SIGTERM exits
+- Use `src/logger.ts`; avoid ad hoc console noise.
+- Keep logs structured: message plus context object.
+- Use `info` for startup, command handling, state changes, retries, and major
+  gateway/voice events.
+- Use `debug` for probe results, ffmpeg command lines, codec data, and expected
+  SIGTERM exits.
 - Use `warn` for degraded but recoverable conditions.
 - Use `error` for unrecoverable conditions.
 - Do not add a metrics stack or HTTP admin service unless explicitly requested.
 
-## Config Rules
+## Stream Lifecycle Expectations
+- One active stream at a time.
+- Preserve the single-session model.
+- When editing lifecycle code, consider startup timeout, media stall timeout,
+  retry backoff, voice disconnect behavior, and gateway reconnect behavior.
+- If behavior becomes ambiguous, stopping cleanly is usually the right choice.
 
+## Config Rules
 - Keep `src/config.ts`, `config/example.jsonc`, and `README.md` aligned.
 - If config shape changes, update all three in the same change.
-- Maintain sensible defaults for long-running operation.
-- Preserve env overrides where they already exist.
+- Preserve existing env overrides unless intentionally removing them.
+- Keep defaults suitable for long-running operation.
 
-## Stream Lifecycle Rules
-
-- This app supports one active stream at a time.
-- Preserve the single active session model.
-- When editing lifecycle code, consider:
-  - startup timeout
-  - media stall timeout
-  - retry backoff
-  - voice disconnect behavior
-  - gateway reconnect behavior
-- If behavior becomes ambiguous, prefer stopping cleanly over retry loops.
+## Docker / CI Rules
+- Keep `Dockerfile`, `.github/workflows/ci.yml`, and
+  `.github/workflows/docker-publish.yml` aligned.
+- Preserve FFmpeg/FFprobe smoke checks unless replacing them with something
+  equally useful.
+- Preserve the lightweight health snapshot + healthcheck model unless an
+  explicit ops change is requested.
 
 ## Dependency Rules
-
 - Be conservative with new dependencies.
 - Prefer the Node standard library when practical.
-- Do not casually swap out the core Discord or streaming dependencies.
-- If you add a package, document why built-ins or current helpers were not
-  sufficient.
+- Do not casually replace the core Discord or streaming dependencies.
+- If adding a package, explain why existing code or built-ins were insufficient.
 
-## CI / Release Expectations
-
-- Keep `.github/workflows/ci.yml` aligned with real repo commands.
-- Keep `.github/workflows/docker-publish.yml` aligned with Docker behavior.
-- If runtime behavior changes, preserve the smoke checks unless replacing them
-  with something equally useful.
-- Do not remove FFmpeg/FFprobe validation without replacement.
-
-## Documentation Expectations
-
-Update `README.md` when changing any of the following:
-
-- install flow
-- run commands
-- config keys
-- Docker behavior
-- health behavior
-- long-run operational semantics
+## Documentation Rules
+Update `README.md` when changing install flow, runtime commands, config keys,
+Docker behavior, health behavior, or long-run operational semantics.
 
 ## Avoid
-
 - Reintroducing deleted legacy modules
-- Reintroducing pre-commit or other removed local tooling by default
-- Multi-stream orchestration or background worker complexity
-- Auto-resume behavior that hides stale Discord voice state
-- Secret files or token-bearing config in git
+- Reintroducing removed local tooling by default
+- Multi-stream orchestration
+- Hidden auto-resume behavior that obscures stale voice state
+- Secret-bearing config in git
 - Large refactors that do not clearly improve robustness
