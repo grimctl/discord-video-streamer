@@ -1,48 +1,29 @@
 {
   "name": "discord-video-streamer",
-  "version": "1.0.0",
-  "description": "",
+  "version": "0.1.0",
+  "description": "Minimal Discord IPTV streamer focused on reliable $play URL streaming",
+  "private": true,
   "type": "module",
-  "exports": "./index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.json",
+    "check": "npm run typecheck && npm run build",
+    "dev": "tsx src/index.ts",
+    "healthcheck": "node build/healthcheck.js",
     "start": "node build/index.js",
-    "dev": "tsc && node build/index.js",
-    "lint": "biome lint --error-on-warnings .",
-    "lint:fix": "biome lint --write .",
-    "format": "biome format --write .",
-    "format:check": "biome format .",
-    "type-check": "tsc --noEmit"
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "devDependencies": {
-    "@biomejs/biome": "1.9.4",
-    "@total-typescript/ts-reset": "^0.6.1",
-    "@types/fluent-ffmpeg": "^2.1.28",
-    "@types/node": "^24.10.1",
-    "@types/prompts": "^2.4.9",
-    "@types/winston": "^2.4.4",
-    "typescript": "^5.9.3"
+  "engines": {
+    "node": ">=24"
   },
+  "license": "MIT",
   "dependencies": {
-    "@commander-js/extra-typings": "^14.0.0",
-    "@dank074/discord-video-stream": "https://pkg.pr.new/Discord-RE/Discord-video-stream/@dank074/discord-video-stream@e4805fa",
-    "commander": "^14.0.2",
-    "discord.js-selfbot-v13": "^3.6.1",
-    "execa": "^9.6.0",
-    "fluent-ffmpeg": "^2.1.3",
-    "glob": "^11.1.0",
-    "jsonc-parser": "^3.3.1",
-    "ky": "^1.14.0",
-    "p-cancelable": "^4.0.1",
-    "prism-media": "^1.3.5",
-    "prompts": "^2.4.2",
-    "sodium-native": "^5.0.10",
-    "string-argv": "^0.3.2",
-    "valibot": "1.1.0",
-    "winston": "^3.18.3"
+    "@dank074/discord-video-stream": "6.0.0",
+    "discord.js-selfbot-v13": "3.7.1",
+    "jsonc-parser": "^3.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
   }
 }

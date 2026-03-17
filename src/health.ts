@@ -1,236 +1,104 @@
-import {
-  createServer,
-  type Server,
-  type IncomingMessage,
-  type ServerResponse,
-} from "node:http";
-import type { Bot } from "./bot.js";
-import { getLogger } from "./utils/logger.js";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import type { Logger } from "./logger.js";
 
-export interface HealthServerConfig {
-  port: number;
-  host?: string;
+export const DEFAULT_HEALTH_FILE_PATH =
+  process.env.HEALTH_FILE_PATH ?? "/tmp/discord-video-streamer/health.json";
+export const DEFAULT_HEALTH_WRITE_INTERVAL_MS = 15_000;
+export const DEFAULT_HEALTH_STALE_MS = 90_000;
+
+export type HealthSnapshot = {
+  startedAt: string;
+  updatedAt: string;
+  state: string;
+  stateChangedAt: string;
+  clientReady: boolean;
+  lastError?: string;
+  stream?: {
+    url: string;
+    attempts: number;
+    retries: number;
+    requestedAt: string;
+    runningSince?: string;
+    lastMediaAt?: string;
+    sourceHeight?: number;
+    sourceFps?: number;
+    targetHeight?: number;
+    targetFps?: number;
+    mediaStallTimeoutMs: number;
+    voiceTarget: {
+      guildId: string;
+      guildName: string;
+      channelId: string;
+      channelName: string;
+    };
+  };
+};
+
+export class HealthReporter {
+  private writeTimer?: NodeJS.Timeout;
+  private writeChain = Promise.resolve();
+
+  constructor(
+    private readonly logger: Logger,
+    private readonly snapshotProvider: () => HealthSnapshot,
+    private readonly filePath = DEFAULT_HEALTH_FILE_PATH,
+    private readonly intervalMs = DEFAULT_HEALTH_WRITE_INTERVAL_MS,
+  ) {}
+
+  start(): void {
+    this.publish();
+    this.writeTimer = setInterval(() => {
+      this.publish();
+    }, this.intervalMs);
+    this.writeTimer.unref();
+  }
+
+  stop(): void {
+    if (this.writeTimer) {
+      clearInterval(this.writeTimer);
+      this.writeTimer = undefined;
+    }
+  }
+
+  publish(): void {
+    const snapshot = this.snapshotProvider();
+    this.writeChain = this.writeChain
+      .catch(() => undefined)
+      .then(async () => {
+        await writeHealthSnapshot(snapshot, this.filePath);
+      })
+      .catch((error: unknown) => {
+        this.logger.warn("Failed to write health snapshot", {
+          error: formatError(error),
+          filePath: this.filePath,
+        });
+      });
+  }
 }
 
-export class HealthServer {
-  private server: Server;
-  private bot: Bot;
-  private config: HealthServerConfig;
-  private logger = getLogger();
+export async function writeHealthSnapshot(
+  snapshot: HealthSnapshot,
+  filePath = DEFAULT_HEALTH_FILE_PATH,
+): Promise<void> {
+  const directory = dirname(filePath);
+  const tempPath = `${filePath}.tmp`;
 
-  constructor(bot: Bot, config: HealthServerConfig = { port: 8080 }) {
-    this.bot = bot;
-    this.config = { host: "0.0.0.0", ...config };
-    this.server = createServer(this.handleRequest.bind(this));
+  await mkdir(directory, { recursive: true });
+  await writeFile(tempPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+  await rename(tempPath, filePath);
+}
+
+export async function readHealthSnapshot(
+  filePath = DEFAULT_HEALTH_FILE_PATH,
+): Promise<HealthSnapshot> {
+  return JSON.parse(await readFile(filePath, "utf8")) as HealthSnapshot;
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
   }
 
-  private handleRequest(req: IncomingMessage, res: ServerResponse): void {
-    const url = req.url;
-    const method = req.method;
-
-    // Set common headers
-    res.setHeader("Content-Type", "application/json");
-    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-
-    try {
-      if (method !== "GET") {
-        this.sendResponse(res, 405, { error: "Method not allowed" });
-        return;
-      }
-
-      switch (url) {
-        case "/health":
-        case "/healthz":
-          this.handleLiveness(res);
-          break;
-        case "/ready":
-        case "/readiness":
-          this.handleReadiness(res);
-          break;
-        case "/startup":
-          this.handleStartup(res);
-          break;
-        default:
-          this.sendResponse(res, 404, { error: "Not found" });
-      }
-    } catch (error) {
-      this.logger.logError("Health check error", { error });
-      this.sendResponse(res, 500, { error: "Internal server error" });
-    }
-  }
-
-  private handleLiveness(res: ServerResponse): void {
-    // Liveness probe: checks if the application is running
-    // This should only fail if the process is completely broken
-    const streamingState = (
-      this.bot as typeof this.bot & {
-        streamingState?: {
-          isStreaming: boolean;
-          queueLength: number;
-          currentStream: string | null;
-        };
-      }
-    ).streamingState;
-
-    const status = {
-      status: "ok",
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      pid: process.pid,
-      memory: process.memoryUsage(),
-      streaming: streamingState
-        ? {
-            isStreaming: streamingState.isStreaming,
-            queueLength: streamingState.queueLength,
-            currentStream: streamingState.currentStream,
-          }
-        : null,
-    };
-
-    this.sendResponse(res, 200, status);
-  }
-
-  private handleReadiness(res: ServerResponse): void {
-    // Readiness probe: checks if the application is ready to serve traffic
-    // This should fail if Discord client is not ready or other critical services are down
-    const isReady =
-      this.bot.initialized &&
-      this.bot.client.isReady() &&
-      this.bot.client.user !== null;
-
-    // Get streaming state if available
-    const streamingState = (
-      this.bot as typeof this.bot & {
-        streamingState?: {
-          isStreaming: boolean;
-          isProcessing: boolean;
-          queueLength: number;
-          currentStream: string | null;
-          voiceConnection: {
-            guildId: string | null;
-            channelId: string;
-            ready: boolean;
-          } | null;
-        };
-      }
-    ).streamingState;
-
-    if (isReady) {
-      const status = {
-        status: "ready",
-        timestamp: new Date().toISOString(),
-        discord: {
-          ready: true,
-          user: this.bot.client.user?.tag || null,
-          guilds: this.bot.client.guilds.cache.size,
-        },
-        modules: Array.from(this.bot.allCommandsByModule.keys()),
-        streaming: streamingState
-          ? {
-              isActive: streamingState.isStreaming,
-              isProcessing: streamingState.isProcessing,
-              queueLength: streamingState.queueLength,
-              currentStream: streamingState.currentStream,
-              voiceConnection: streamingState.voiceConnection,
-            }
-          : null,
-      };
-      this.sendResponse(res, 200, status);
-    } else {
-      const status = {
-        status: "not ready",
-        timestamp: new Date().toISOString(),
-        discord: {
-          ready: false,
-          initialized: this.bot.initialized,
-          clientReady: this.bot.client.isReady(),
-          hasUser: this.bot.client.user !== null,
-        },
-        streaming: streamingState
-          ? {
-              isActive: streamingState.isStreaming,
-              isProcessing: streamingState.isProcessing,
-              queueLength: streamingState.queueLength,
-              currentStream: streamingState.currentStream,
-              voiceConnection: streamingState.voiceConnection,
-            }
-          : null,
-      };
-      this.sendResponse(res, 503, status);
-    }
-  }
-
-  private handleStartup(res: ServerResponse): void {
-    // Startup probe: checks if the application has started successfully
-    // Similar to readiness but may have different criteria
-    const hasStarted = this.bot.initialized;
-    const streamingState = (
-      this.bot as typeof this.bot & {
-        streamingState?: {
-          isStreaming: boolean;
-          isProcessing: boolean;
-          queueLength: number;
-        };
-      }
-    ).streamingState;
-
-    if (hasStarted) {
-      const status = {
-        status: "started",
-        timestamp: new Date().toISOString(),
-        initialized: true,
-        streaming: streamingState
-          ? {
-              isStreaming: streamingState.isStreaming,
-              isProcessing: streamingState.isProcessing,
-              queueLength: streamingState.queueLength,
-            }
-          : null,
-      };
-      this.sendResponse(res, 200, status);
-    } else {
-      const status = {
-        status: "starting",
-        timestamp: new Date().toISOString(),
-        initialized: false,
-        streaming: null,
-      };
-      this.sendResponse(res, 503, status);
-    }
-  }
-
-  private sendResponse(
-    res: ServerResponse,
-    statusCode: number,
-    data: Record<string, unknown>,
-  ): void {
-    res.statusCode = statusCode;
-    res.end(JSON.stringify(data, null, 2));
-  }
-
-  public start(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.server.listen(this.config.port, this.config.host, () => {
-        this.logger.info(
-          `Health server listening on ${this.config.host}:${this.config.port}`,
-          { host: this.config.host, port: this.config.port },
-        );
-        resolve();
-      });
-
-      this.server.on("error", (error) => {
-        this.logger.logError("Health server error", { error });
-        reject(error);
-      });
-    });
-  }
-
-  public stop(): Promise<void> {
-    return new Promise((resolve) => {
-      this.server.close(() => {
-        this.logger.info("Health server stopped");
-        resolve();
-      });
-    });
-  }
+  return String(error);
 }

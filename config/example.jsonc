@@ -1,0 +1,49 @@
+{
+  // Discord user token for the selfbot session.
+  "token": "PASTE_DISCORD_USER_TOKEN_HERE",
+
+  // Any non-bot user whose message is visible to this account can issue commands.
+  "prefix": "$",
+
+  "logging": {
+    "level": "info"
+  },
+
+  "stream": {
+    // Maximum output height. The app probes the source first and will not upscale.
+    "maxHeight": 1080,
+
+    // Cap the outgoing frame rate for Discord.
+    "maxFps": 30,
+
+    // H.264 bitrate targets in kbps.
+    "bitrateKbps": 4500,
+    "maxBitrateKbps": 6000,
+    "audioBitrateKbps": 128,
+
+    // Good software x264 preset for IPTV reliability.
+    "x264Preset": "veryfast",
+
+    // How long to wait for media packets before restarting the attempt.
+    "startupTimeoutMs": 20000,
+
+    // If no transcoded media is observed for this long, force a restart.
+    "mediaStallTimeoutMs": 45000,
+
+    "probeTimeoutMs": 12000,
+    "networkTimeoutMs": 30000,
+
+    // Retry forever with backoff if the IPTV source drops.
+    "retryInitialDelayMs": 1000,
+    "retryMaxDelayMs": 15000,
+
+    // If a run survives this long, the retry backoff is reset.
+    "stableAfterMs": 300000,
+
+    // Helps live streams start quickly.
+    "readrateInitialBurst": 10,
+
+    // Sent to Xtream and other HTTP-based IPTV endpoints.
+    "userAgent": "Mozilla/5.0 (compatible; discord-video-streamer/0.1.0)"
+  }
+}

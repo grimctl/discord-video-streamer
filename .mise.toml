@@ -1,0 +1,46 @@
+[tools]
+node = "24.14.0"
+python = "3.13.7"
+"github:BtbN/FFmpeg-Builds" = { version = "autobuild-2026-03-17-13-11", asset_pattern = "ffmpeg-n8.0.1-76-gfa4ee7ab3c-linux64-gpl-8.0.tar.xz" }
+
+[tasks.install]
+description = "Install Node dependencies"
+run = '''
+set -eu
+npm ci
+'''
+
+[tasks.dev]
+description = "Run the bot from source"
+run = '''
+set -eu
+npm run dev
+'''
+
+[tasks.build]
+description = "Build TypeScript"
+run = '''
+set -eu
+npm run build
+'''
+
+[tasks.check]
+description = "Run typecheck and build"
+run = '''
+set -eu
+npm run check
+'''
+
+[tasks.start]
+description = "Run the built bot"
+run = '''
+set -eu
+npm run start
+'''
+
+[tasks."docker:build"]
+description = "Build the container image"
+run = '''
+set -eu
+docker build -t discord-video-streamer .
+'''
