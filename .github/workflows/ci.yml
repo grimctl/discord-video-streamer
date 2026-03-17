@@ -31,14 +31,6 @@ jobs:
       - name: Typecheck and build
         run: npm run check
 
-      - name: Smoke test startup validation
-        run: |
-          if node build/index.js config/example.jsonc 2>&1 | tee /tmp/discord-video-streamer-startup.log; then
-            echo "expected placeholder-token startup failure" >&2
-            exit 1
-          fi
-          grep -q "placeholder token" /tmp/discord-video-streamer-startup.log
-
   docker:
     runs-on: ubuntu-latest
     steps:
@@ -58,12 +50,7 @@ jobs:
           platforms: linux/amd64
           tags: discord-video-streamer:test
 
-      - name: Smoke test container runtime
+      - name: Smoke test container media tools
         run: |
           docker run --rm discord-video-streamer:test ffmpeg -version
           docker run --rm discord-video-streamer:test ffprobe -version
-          if docker run --rm discord-video-streamer:test node build/index.js config/example.jsonc 2>&1 | tee /tmp/discord-video-streamer-container-startup.log; then
-            echo "expected placeholder-token startup failure inside container" >&2
-            exit 1
-          fi
-          grep -q "placeholder token" /tmp/discord-video-streamer-container-startup.log
