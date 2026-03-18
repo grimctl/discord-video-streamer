@@ -19,6 +19,11 @@ export type X264Preset =
 export type AppConfig = {
   token: string;
   prefix: string;
+  api: {
+    enabled: boolean;
+    host: string;
+    port: number;
+  };
   logging: {
     level: LogLevel;
   };
@@ -43,6 +48,11 @@ export type AppConfig = {
 
 const DEFAULT_CONFIG: Omit<AppConfig, "token"> = {
   prefix: "$",
+  api: {
+    enabled: true,
+    host: "127.0.0.1",
+    port: 3000,
+  },
   logging: {
     level: "info",
   },
@@ -95,6 +105,7 @@ export async function loadConfig(explicitPath?: string): Promise<{
 
   const stream = getObject(parsed, "stream");
   const logging = getObject(parsed, "logging");
+  const api = getObject(parsed, "api");
 
   const token =
     process.env.DISCORD_TOKEN ??
@@ -120,6 +131,17 @@ export async function loadConfig(explicitPath?: string): Promise<{
     config: {
       token,
       prefix,
+      api: {
+        enabled: parseBoolean(
+          process.env.API_ENABLED ?? getOptionalBoolean(api, "enabled", DEFAULT_CONFIG.api.enabled),
+          "api.enabled",
+        ),
+        host: process.env.API_HOST ?? getString(api, "host", DEFAULT_CONFIG.api.host),
+        port: parseRequiredPositiveNumber(
+          process.env.API_PORT ?? getOptionalNumber(api, "port", DEFAULT_CONFIG.api.port),
+          "api.port",
+        ),
+      },
       logging: {
         level: logLevel,
       },
@@ -266,6 +288,27 @@ function getOptionalNumber(
   return fallback;
 }
 
+function getOptionalBoolean(
+  source: JsonObject,
+  key: string,
+  fallback?: boolean,
+): boolean | undefined {
+  const value = source[key];
+  if (typeof value == "boolean") {
+    return value;
+  }
+  if (typeof value == "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") {
+      return true;
+    }
+    if (normalized === "false") {
+      return false;
+    }
+  }
+  return fallback;
+}
+
 function parseRequiredPositiveNumber(
   value: number | string | undefined,
   label: string,
@@ -292,6 +335,23 @@ function parseOptionalPositiveNumber(
   }
 
   return parsed;
+}
+
+function parseBoolean(value: boolean | string | undefined, label: string): boolean {
+  if (typeof value == "boolean") {
+    return value;
+  }
+  if (typeof value == "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") {
+      return true;
+    }
+    if (normalized === "false") {
+      return false;
+    }
+  }
+
+  throw new Error(`Expected ${label} to be a boolean`);
 }
 
 function normalizeLogLevel(value: string): LogLevel {

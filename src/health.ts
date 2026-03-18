@@ -35,6 +35,11 @@ export type HealthSnapshot = {
   };
 };
 
+export type HealthEvaluation = {
+  ok: boolean;
+  reason?: string;
+};
+
 export class HealthReporter {
   private writeTimer?: NodeJS.Timeout;
   private writeChain = Promise.resolve();
@@ -93,6 +98,52 @@ export async function readHealthSnapshot(
   filePath = DEFAULT_HEALTH_FILE_PATH,
 ): Promise<HealthSnapshot> {
   return JSON.parse(await readFile(filePath, "utf8")) as HealthSnapshot;
+}
+
+export function evaluateHealthSnapshot(
+  snapshot: HealthSnapshot,
+  options: { nowMs?: number; staleMs?: number } = {},
+): HealthEvaluation {
+  const nowMs = options.nowMs ?? Date.now();
+  const staleMs = options.staleMs ?? DEFAULT_HEALTH_STALE_MS;
+  const updatedAtMs = Date.parse(snapshot.updatedAt);
+
+  if (!Number.isFinite(updatedAtMs)) {
+    return {
+      ok: false,
+      reason: "health snapshot has an invalid updatedAt timestamp",
+    };
+  }
+
+  const ageMs = nowMs - updatedAtMs;
+  if (ageMs > staleMs) {
+    return {
+      ok: false,
+      reason: `Health snapshot is stale (${ageMs}ms old)`,
+    };
+  }
+
+  if (snapshot.state === "failed") {
+    return {
+      ok: false,
+      reason: snapshot.lastError ?? "stream session is failed",
+    };
+  }
+
+  if (snapshot.state === "playing") {
+    const lastMediaAtMs = Date.parse(snapshot.stream?.lastMediaAt ?? "");
+    const stallTimeoutMs = snapshot.stream?.mediaStallTimeoutMs ?? 45_000;
+    const mediaAgeMs = nowMs - lastMediaAtMs;
+
+    if (!Number.isFinite(lastMediaAtMs) || mediaAgeMs > stallTimeoutMs) {
+      return {
+        ok: false,
+        reason: `No media observed for ${mediaAgeMs}ms`,
+      };
+    }
+  }
+
+  return { ok: true };
 }
 
 function formatError(error: unknown): string {

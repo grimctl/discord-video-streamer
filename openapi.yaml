@@ -1,0 +1,58 @@
+openapi: 3.1.0
+info:
+  title: Discord IPTV Streamer Control API
+  version: 0.1.0
+  description: Minimal local control API for discord-video-streamer.
+servers:
+  - url: http://127.0.0.1:3000
+paths:
+  /healthz:
+    get:
+      summary: Get health status
+      responses:
+        '200':
+          description: Healthy snapshot
+        '503':
+          description: Unhealthy snapshot
+  /status:
+    get:
+      summary: Get current stream status
+      responses:
+        '200':
+          description: Current status and snapshot
+  /play:
+    post:
+      summary: Start a stream in a specific guild voice channel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, guildId, channelId]
+              properties:
+                url:
+                  type: string
+                guildId:
+                  type: string
+                channelId:
+                  type: string
+      responses:
+        '200':
+          description: Stream start accepted
+        '400':
+          description: Invalid request body
+        '503':
+          description: Discord client not ready
+  /stop:
+    post:
+      summary: Stop the active stream and stay in voice
+      responses:
+        '200':
+          description: Stop processed
+  /disconnect:
+    post:
+      summary: Stop the active stream and leave voice
+      responses:
+        '200':
+          description: Disconnect processed

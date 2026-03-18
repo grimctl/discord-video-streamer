@@ -1,6 +1,7 @@
 import process from "node:process";
 import { Client, type Message } from "discord.js-selfbot-v13";
 import { loadConfig } from "./config.js";
+import { startControlServer, type ControlServerHandle } from "./control-server.js";
 import { Logger } from "./logger.js";
 import { StreamSession } from "./stream-session.js";
 
@@ -9,16 +10,34 @@ type ParsedCommand = {
   argument: string;
 };
 
+type MutationRunner = <T>(
+  action: string,
+  context: Record<string, unknown>,
+  operation: () => Promise<T>,
+) => Promise<T>;
+
 async function main(): Promise<void> {
   const { config, configPath } = await loadConfig(process.argv[2]);
   const logger = new Logger(config.logging.level);
   const client = new Client();
   const session = new StreamSession(client, config, logger);
+  const runMutation = createMutationRunner(logger);
   let shuttingDown = false;
   let fatalGatewayExitInFlight = false;
   let gatewayResetInFlight: Promise<void> | undefined;
+  let controlServer: ControlServerHandle | undefined;
 
   logger.info("Loaded configuration", { configPath, prefix: config.prefix });
+
+  if (config.api.enabled) {
+    controlServer = startControlServer({
+      client,
+      config: config.api,
+      logger,
+      runMutation,
+      session,
+    });
+  }
 
   client.on("ready", () => {
     logger.info("Discord client ready", {
@@ -87,7 +106,14 @@ async function main(): Promise<void> {
     });
 
     try {
-      await handleCommand(message, command, session, logger, config.prefix);
+      await handleCommand(
+        message,
+        command,
+        session,
+        logger,
+        config.prefix,
+        runMutation,
+      );
     } catch (error) {
       const reason = formatError(error);
       logger.warn("Command failed", {
@@ -105,6 +131,11 @@ async function main(): Promise<void> {
     shuttingDown = true;
     logger.info("Shutting down", { signal });
     await session.stop(true);
+    await controlServer?.close().catch((error: unknown) => {
+      logger.warn("Failed closing control API", {
+        error: formatError(error),
+      });
+    });
     session.dispose();
     client.destroy();
     process.exit(0);
@@ -151,6 +182,7 @@ async function main(): Promise<void> {
 
     await resetSessionForGatewayEvent(event, context);
     shuttingDown = true;
+    await controlServer?.close().catch(() => undefined);
     session.dispose();
     client.destroy();
 
@@ -211,6 +243,7 @@ async function handleCommand(
   session: StreamSession,
   logger: Logger,
   prefix: string,
+  runMutation: MutationRunner,
 ): Promise<void> {
   switch (command.name) {
     case "play": {
@@ -219,7 +252,16 @@ async function handleCommand(
         return;
       }
 
-      await session.start(message, command.argument);
+      await runMutation(
+        "discord.play",
+        {
+          authorId: message.author.id,
+          guildId: message.guildId,
+          channelId: message.member?.voice?.channel?.id ?? message.author.voice?.channel?.id,
+          url: command.argument,
+        },
+        () => session.start(message, command.argument),
+      );
       await reply(
         message,
         `Starting IPTV stream in your current voice channel:
@@ -229,7 +271,14 @@ async function handleCommand(
     }
 
     case "stop": {
-      const stopped = await session.stop(false);
+      const stopped = await runMutation(
+        "discord.stop",
+        {
+          authorId: message.author.id,
+          guildId: message.guildId,
+        },
+        () => session.stop(false),
+      );
       await reply(
         message,
         stopped ? "Stopped the active stream." : "No active stream to stop.",
@@ -238,7 +287,14 @@ async function handleCommand(
     }
 
     case "disconnect": {
-      await session.stop(true);
+      await runMutation(
+        "discord.disconnect",
+        {
+          authorId: message.author.id,
+          guildId: message.guildId,
+        },
+        () => session.stop(true),
+      );
       await reply(message, "Stopped streaming and left the voice channel.");
       return;
     }
@@ -280,6 +336,43 @@ function formatError(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function createMutationRunner(logger: Logger): MutationRunner {
+  let queue = Promise.resolve();
+
+  return async <T>(
+    action: string,
+    context: Record<string, unknown>,
+    operation: () => Promise<T>,
+  ): Promise<T> => {
+    const run = async () => {
+      logger.info("Starting control mutation", {
+        action,
+        ...context,
+      });
+
+      try {
+        const result = await operation();
+        logger.info("Completed control mutation", {
+          action,
+          ...context,
+        });
+        return result;
+      } catch (error) {
+        logger.warn("Control mutation failed", {
+          action,
+          error: formatError(error),
+          ...context,
+        });
+        throw error;
+      }
+    };
+
+    const next = queue.then(run, run);
+    queue = next.then(() => undefined, () => undefined);
+    return next;
+  };
 }
 
 void main().catch((error) => {

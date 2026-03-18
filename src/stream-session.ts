@@ -17,7 +17,7 @@ import { buildStreamInputArgs, probeStream } from "./probe.js";
 
 type StreamState = "idle" | "starting" | "playing" | "retrying" | "stopping" | "failed";
 
-type VoiceTarget = {
+export type VoiceTarget = {
   guildId: string;
   guildName: string;
   channelId: string;
@@ -84,12 +84,30 @@ export class StreamSession {
 
   async start(message: Message, url: string): Promise<void> {
     const voiceTarget = await this.resolveVoiceTarget(message);
-
-    this.logger.info("Received stream request", {
+    await this.startWithVoiceTarget(voiceTarget, url, {
       authorId: message.author.id,
+    });
+  }
+
+  async startWithIds(guildId: string, channelId: string, url: string): Promise<void> {
+    const voiceTarget = this.resolveVoiceTargetFromIds(guildId, channelId);
+    await this.startWithVoiceTarget(voiceTarget, url);
+  }
+
+  getHealthSnapshot(): HealthSnapshot {
+    return this.buildHealthSnapshot();
+  }
+
+  private async startWithVoiceTarget(
+    voiceTarget: VoiceTarget,
+    url: string,
+    context: Record<string, unknown> = {},
+  ): Promise<void> {
+    this.logger.info("Received stream request", {
       guildId: voiceTarget.guildId,
       channelId: voiceTarget.channelId,
       url,
+      ...context,
     });
 
     await this.stop(false);
@@ -411,6 +429,21 @@ export class StreamSession {
         "name" in channel && typeof channel.name === "string"
           ? channel.name
           : channel.id,
+    };
+  }
+
+  private resolveVoiceTargetFromIds(guildId: string, channelId: string): VoiceTarget {
+    const guild = this.client.guilds.cache.get(guildId);
+    const channel = guild?.channels.cache.get(channelId);
+
+    return {
+      guildId,
+      guildName: guild?.name ?? guildId,
+      channelId,
+      channelName:
+        channel && "name" in channel && typeof channel.name === "string"
+          ? channel.name
+          : channelId,
     };
   }
 

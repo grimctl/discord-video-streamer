@@ -5,6 +5,14 @@
   // Any non-bot user whose message is visible to this account can issue commands.
   "prefix": "$",
 
+  "api": {
+    // Leave enabled and bound to localhost for simple local control.
+    // If you need to reach it through Docker port publishing, set host to 0.0.0.0.
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 3000
+  },
+
   "logging": {
     "level": "info"
   },

@@ -1,14 +1,15 @@
 # Discord IPTV Streamer
 
-This is a fresh, stripped-down rewrite focused on one job: take `$play <iptv-stream-url>` and keep that stream running in Discord as reliably as possible.
+This is a fresh, stripped-down rewrite focused on one job: take an IPTV stream URL and keep it running in Discord as reliably as possible.
 
-It uses `@dank074/discord-video-stream` v6, software H.264 encoding, automatic voice join, source probing, and endless retry with backoff for flaky IPTV feeds.
+It uses `@dank074/discord-video-stream` v6, software H.264 encoding, a small local control API, Discord command fallback, source probing, and endless retry with backoff for flaky IPTV feeds.
 
 ## What It Does
 
 - Reads commands from any non-bot user in visible channels
 - Joins the voice channel you are currently in
 - Starts Go Live streaming with `$play <url>`
+- Exposes a simple HTTP API for play/stop/disconnect/status control
 - Re-encodes to H.264 for Discord compatibility
 - Probes source resolution and FPS first so it does not upscale smaller IPTV feeds
 - Retries forever if the source drops or stalls
@@ -17,6 +18,8 @@ It uses `@dank074/discord-video-stream` v6, software H.264 encoding, automatic v
 
 ## Commands
 
+- The HTTP API is the primary control path.
+- Discord message commands remain available as a fallback.
 - `$play <url>`: stop any current stream and start this IPTV URL
 - `$stop`: stop streaming but stay connected to voice
 - `$disconnect`: stop streaming and leave voice
@@ -56,6 +59,9 @@ Important fields:
 
 - `token`: your Discord user token
 - `prefix`: message prefix, defaults to `$`
+- `api.enabled`: enable the local control API
+- `api.host`: API bind address, defaults to `127.0.0.1`
+- `api.port`: API port, defaults to `3000`
 - `stream.maxHeight`: upper output cap; the app probes first and avoids upscaling
 - `stream.maxFps`: caps outgoing FPS for Discord
 - `stream.bitrateKbps` and `stream.maxBitrateKbps`: H.264 bitrate targets
@@ -63,7 +69,53 @@ Important fields:
 - `stream.mediaStallTimeoutMs`: restarts streams that go silent without exiting
 - `stream.retryInitialDelayMs` and `stream.retryMaxDelayMs`: reconnect backoff
 
-You can also override the basics with env vars like `DISCORD_TOKEN`, `COMMAND_PREFIX`, and `LOG_LEVEL`.
+You can also override the basics with env vars like `DISCORD_TOKEN`, `COMMAND_PREFIX`, `LOG_LEVEL`, `API_ENABLED`, `API_HOST`, and `API_PORT`.
+
+## HTTP API
+
+The app exposes a tiny local API with no authentication. Keep it bound to localhost unless you are deliberately placing it behind a trusted reverse proxy or other network control.
+
+If you run in Docker and want to reach the API from outside the container, set `api.host` to `0.0.0.0` and publish the port explicitly.
+
+Base URL by default:
+
+```bash
+http://127.0.0.1:3000
+```
+
+Endpoints:
+
+- `GET /healthz` - health summary plus current snapshot
+- `GET /status` - current stream snapshot and human-readable status
+- `POST /play` - start a stream in a specific guild/channel
+- `POST /stop` - stop the stream and stay in voice
+- `POST /disconnect` - stop the stream and leave voice
+
+Example `POST /play`:
+
+```bash
+curl -X POST http://127.0.0.1:3000/play \
+  -H 'content-type: application/json' \
+  -d '{
+    "url": "http://example.invalid/live/stream.ts",
+    "guildId": "695363853516800091",
+    "channelId": "1004767134401966091"
+  }'
+```
+
+Example `POST /stop`:
+
+```bash
+curl -X POST http://127.0.0.1:3000/stop
+```
+
+Example `POST /disconnect`:
+
+```bash
+curl -X POST http://127.0.0.1:3000/disconnect
+```
+
+A simple OpenAPI description is available in `openapi.yaml`.
 
 ## Docker
 
@@ -83,9 +135,21 @@ docker run -d \
   discord-video-streamer
 ```
 
+If you want to reach the control API from outside the container, set `api.host` to `0.0.0.0` and publish the port:
+
+```bash
+docker run -d \
+  --name discord-video-streamer \
+  --restart unless-stopped \
+  -p 3000:3000 \
+  -v "$(pwd)/config.jsonc:/app/config.jsonc:ro" \
+  discord-video-streamer
+```
+
 ## Long-Run Operation
 
 - Use `logging.level = "info"` for normal operation and switch to `debug` only when investigating feed or voice issues.
+- The local control API defaults to `127.0.0.1:3000` with no auth; keep it on localhost unless you have an external access-control layer.
 - The app writes a health snapshot to `/tmp/discord-video-streamer/health.json`; the container `HEALTHCHECK` reads that file.
 - While active, the app logs a periodic `Stream heartbeat` line with state, retries, voice target, and last media age.
 - If the Discord gateway reconnects or the session is invalidated, the active stream is stopped instead of trying to auto-resume a possibly stale voice session.

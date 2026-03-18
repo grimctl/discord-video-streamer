@@ -23,6 +23,7 @@ this file aligned with them.
 - Stream lifecycle: `src/stream-session.ts`
 - Config loading: `src/config.ts`
 - Probe helpers: `src/probe.ts`
+- HTTP control API: `src/control-server.ts`
 - Logging: `src/logger.ts`
 - Health snapshot: `src/health.ts`
 - Healthcheck CLI: `src/healthcheck.ts`
@@ -101,6 +102,7 @@ for all tests, watch mode, a single file, and a single case.
 
 ## Source Map
 - `src/index.ts`: startup, Discord client wiring, commands, gateway handling
+- `src/control-server.ts`: local HTTP API for play/stop/disconnect/status
 - `src/stream-session.ts`: retries, voice handling, stream state, heartbeat
 - `src/config.ts`: config defaults, validation, env overrides
 - `src/probe.ts`: ffprobe and ffmpeg input options
@@ -167,7 +169,7 @@ for all tests, watch mode, a single file, and a single case.
 - If behavior becomes ambiguous, stopping cleanly is usually the right choice.
 
 ## Config Rules
-- Keep `src/config.ts`, `config/example.jsonc`, and `README.md` aligned.
+- Keep `src/config.ts`, `config/example.jsonc`, `README.md`, and `openapi.yaml` aligned.
 - If config shape changes, update all three in the same change.
 - Preserve existing env overrides unless intentionally removing them.
 - Keep defaults suitable for long-running operation.

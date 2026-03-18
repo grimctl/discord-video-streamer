@@ -2,6 +2,7 @@ import process from "node:process";
 import {
   DEFAULT_HEALTH_FILE_PATH,
   DEFAULT_HEALTH_STALE_MS,
+  evaluateHealthSnapshot,
   readHealthSnapshot,
 } from "./health.js";
 
@@ -13,25 +14,10 @@ async function main(): Promise<void> {
   );
 
   const snapshot = await readHealthSnapshot(filePath);
-  const updatedAtMs = Date.parse(snapshot.updatedAt);
-  const ageMs = Date.now() - updatedAtMs;
+  const evaluation = evaluateHealthSnapshot(snapshot, { staleMs });
 
-  if (!Number.isFinite(updatedAtMs) || ageMs > staleMs) {
-    throw new Error(`Health snapshot is stale (${ageMs}ms old)`);
-  }
-
-  if (snapshot.state === "failed") {
-    throw new Error(snapshot.lastError ?? "stream session is failed");
-  }
-
-  if (snapshot.state === "playing") {
-    const lastMediaAtMs = Date.parse(snapshot.stream?.lastMediaAt ?? "");
-    const stallTimeoutMs = snapshot.stream?.mediaStallTimeoutMs ?? 45_000;
-    const mediaAgeMs = Date.now() - lastMediaAtMs;
-
-    if (!Number.isFinite(lastMediaAtMs) || mediaAgeMs > stallTimeoutMs) {
-      throw new Error(`No media observed for ${mediaAgeMs}ms`);
-    }
+  if (!evaluation.ok) {
+    throw new Error(evaluation.reason ?? "healthcheck failed");
   }
 }
 
