@@ -35,6 +35,7 @@ export type AppConfig = {
     maxBitrateKbps: number;
     audioBitrateKbps: number;
     x264Preset: X264Preset;
+    minimizeLatency: boolean;
     startupTimeoutMs: number;
     mediaStallTimeoutMs: number;
     probeTimeoutMs: number;
@@ -42,7 +43,12 @@ export type AppConfig = {
     retryInitialDelayMs: number;
     retryMaxDelayMs: number;
     stableAfterMs: number;
-    readrateInitialBurst: number;
+    buffer: {
+      startupMs: number;
+      targetMs: number;
+      lowWaterMs: number;
+      resumeMs: number;
+    };
     userAgent: string;
   };
 };
@@ -65,6 +71,7 @@ const DEFAULT_CONFIG: Omit<AppConfig, "token"> = {
     maxBitrateKbps: 6000,
     audioBitrateKbps: 128,
     x264Preset: "veryfast",
+    minimizeLatency: false,
     startupTimeoutMs: 20_000,
     mediaStallTimeoutMs: 45_000,
     probeTimeoutMs: 12_000,
@@ -72,7 +79,12 @@ const DEFAULT_CONFIG: Omit<AppConfig, "token"> = {
     retryInitialDelayMs: 1_000,
     retryMaxDelayMs: 15_000,
     stableAfterMs: 300_000,
-    readrateInitialBurst: 10,
+    buffer: {
+      startupMs: 10_000,
+      targetMs: 25_000,
+      lowWaterMs: 5_000,
+      resumeMs: 10_000,
+    },
     userAgent: "Mozilla/5.0 (compatible; discord-video-streamer/0.1.0)",
   },
 };
@@ -106,6 +118,7 @@ export async function loadConfig(explicitPath?: string): Promise<{
   }
 
   const stream = getObject(parsed, "stream");
+  const buffer = getObject(stream, "buffer");
   const logging = getObject(parsed, "logging");
   const api = getObject(parsed, "api");
 
@@ -133,81 +146,103 @@ export async function loadConfig(explicitPath?: string): Promise<{
     "stream.maxHeight",
   );
 
-  return {
-    config: {
-      token,
-      displayName,
-      prefix,
-      api: {
-        enabled: parseBoolean(
-          process.env.API_ENABLED ?? getOptionalBoolean(api, "enabled", DEFAULT_CONFIG.api.enabled),
-          "api.enabled",
-        ),
-        host: process.env.API_HOST ?? getString(api, "host", DEFAULT_CONFIG.api.host),
-        port: parseRequiredPositiveNumber(
-          process.env.API_PORT ?? getOptionalNumber(api, "port", DEFAULT_CONFIG.api.port),
-          "api.port",
-        ),
-      },
-      logging: {
-        level: logLevel,
-      },
-      stream: {
-        maxHeight,
-        maxFps: parseRequiredPositiveNumber(
-          process.env.STREAM_MAX_FPS ?? getOptionalNumber(stream, "maxFps", DEFAULT_CONFIG.stream.maxFps),
-          "stream.maxFps",
-        ),
-        bitrateKbps: parseRequiredPositiveNumber(
-          process.env.STREAM_BITRATE_KBPS ?? getOptionalNumber(stream, "bitrateKbps", DEFAULT_CONFIG.stream.bitrateKbps),
-          "stream.bitrateKbps",
-        ),
-        maxBitrateKbps: parseRequiredPositiveNumber(
-          process.env.STREAM_MAX_BITRATE_KBPS ?? getOptionalNumber(stream, "maxBitrateKbps", DEFAULT_CONFIG.stream.maxBitrateKbps),
-          "stream.maxBitrateKbps",
-        ),
-        audioBitrateKbps: parseRequiredPositiveNumber(
-          process.env.STREAM_AUDIO_BITRATE_KBPS ?? getOptionalNumber(stream, "audioBitrateKbps", DEFAULT_CONFIG.stream.audioBitrateKbps),
-          "stream.audioBitrateKbps",
-        ),
-        x264Preset: normalizeX264Preset(
-          getString(stream, "x264Preset", DEFAULT_CONFIG.stream.x264Preset),
-        ),
-        startupTimeoutMs: parseRequiredPositiveNumber(
-          getOptionalNumber(stream, "startupTimeoutMs", DEFAULT_CONFIG.stream.startupTimeoutMs),
-          "stream.startupTimeoutMs",
-        ),
-        mediaStallTimeoutMs: parseRequiredPositiveNumber(
-          getOptionalNumber(stream, "mediaStallTimeoutMs", DEFAULT_CONFIG.stream.mediaStallTimeoutMs),
-          "stream.mediaStallTimeoutMs",
-        ),
-        probeTimeoutMs: parseRequiredPositiveNumber(
-          getOptionalNumber(stream, "probeTimeoutMs", DEFAULT_CONFIG.stream.probeTimeoutMs),
-          "stream.probeTimeoutMs",
-        ),
-        networkTimeoutMs: parseRequiredPositiveNumber(
-          getOptionalNumber(stream, "networkTimeoutMs", DEFAULT_CONFIG.stream.networkTimeoutMs),
-          "stream.networkTimeoutMs",
-        ),
-        retryInitialDelayMs: parseRequiredPositiveNumber(
-          getOptionalNumber(stream, "retryInitialDelayMs", DEFAULT_CONFIG.stream.retryInitialDelayMs),
-          "stream.retryInitialDelayMs",
-        ),
-        retryMaxDelayMs: parseRequiredPositiveNumber(
-          getOptionalNumber(stream, "retryMaxDelayMs", DEFAULT_CONFIG.stream.retryMaxDelayMs),
-          "stream.retryMaxDelayMs",
-        ),
-        stableAfterMs: parseRequiredPositiveNumber(
-          getOptionalNumber(stream, "stableAfterMs", DEFAULT_CONFIG.stream.stableAfterMs),
-          "stream.stableAfterMs",
-        ),
-        readrateInitialBurst: parseRequiredPositiveNumber(
-          getOptionalNumber(stream, "readrateInitialBurst", DEFAULT_CONFIG.stream.readrateInitialBurst),
-          "stream.readrateInitialBurst",
-        ),
-        userAgent: getString(stream, "userAgent", DEFAULT_CONFIG.stream.userAgent),
-      },
+  const config: AppConfig = {
+    token,
+    displayName,
+    prefix,
+    api: {
+      enabled: parseBoolean(
+        process.env.API_ENABLED ?? getOptionalBoolean(api, "enabled", DEFAULT_CONFIG.api.enabled),
+        "api.enabled",
+      ),
+      host: process.env.API_HOST ?? getString(api, "host", DEFAULT_CONFIG.api.host),
+      port: parseRequiredPositiveNumber(
+        process.env.API_PORT ?? getOptionalNumber(api, "port", DEFAULT_CONFIG.api.port),
+        "api.port",
+      ),
     },
+    logging: {
+      level: logLevel,
+    },
+    stream: {
+      maxHeight,
+      maxFps: parseRequiredPositiveNumber(
+        process.env.STREAM_MAX_FPS ?? getOptionalNumber(stream, "maxFps", DEFAULT_CONFIG.stream.maxFps),
+        "stream.maxFps",
+      ),
+      bitrateKbps: parseRequiredPositiveNumber(
+        process.env.STREAM_BITRATE_KBPS ?? getOptionalNumber(stream, "bitrateKbps", DEFAULT_CONFIG.stream.bitrateKbps),
+        "stream.bitrateKbps",
+      ),
+      maxBitrateKbps: parseRequiredPositiveNumber(
+        process.env.STREAM_MAX_BITRATE_KBPS ?? getOptionalNumber(stream, "maxBitrateKbps", DEFAULT_CONFIG.stream.maxBitrateKbps),
+        "stream.maxBitrateKbps",
+      ),
+      audioBitrateKbps: parseRequiredPositiveNumber(
+        process.env.STREAM_AUDIO_BITRATE_KBPS ?? getOptionalNumber(stream, "audioBitrateKbps", DEFAULT_CONFIG.stream.audioBitrateKbps),
+        "stream.audioBitrateKbps",
+      ),
+      x264Preset: normalizeX264Preset(
+        getString(stream, "x264Preset", DEFAULT_CONFIG.stream.x264Preset),
+      ),
+      minimizeLatency: parseBoolean(
+        process.env.STREAM_MINIMIZE_LATENCY ?? getOptionalBoolean(stream, "minimizeLatency", DEFAULT_CONFIG.stream.minimizeLatency),
+        "stream.minimizeLatency",
+      ),
+      startupTimeoutMs: parseRequiredPositiveNumber(
+        getOptionalNumber(stream, "startupTimeoutMs", DEFAULT_CONFIG.stream.startupTimeoutMs),
+        "stream.startupTimeoutMs",
+      ),
+      mediaStallTimeoutMs: parseRequiredPositiveNumber(
+        getOptionalNumber(stream, "mediaStallTimeoutMs", DEFAULT_CONFIG.stream.mediaStallTimeoutMs),
+        "stream.mediaStallTimeoutMs",
+      ),
+      probeTimeoutMs: parseRequiredPositiveNumber(
+        getOptionalNumber(stream, "probeTimeoutMs", DEFAULT_CONFIG.stream.probeTimeoutMs),
+        "stream.probeTimeoutMs",
+      ),
+      networkTimeoutMs: parseRequiredPositiveNumber(
+        getOptionalNumber(stream, "networkTimeoutMs", DEFAULT_CONFIG.stream.networkTimeoutMs),
+        "stream.networkTimeoutMs",
+      ),
+      retryInitialDelayMs: parseRequiredPositiveNumber(
+        getOptionalNumber(stream, "retryInitialDelayMs", DEFAULT_CONFIG.stream.retryInitialDelayMs),
+        "stream.retryInitialDelayMs",
+      ),
+      retryMaxDelayMs: parseRequiredPositiveNumber(
+        getOptionalNumber(stream, "retryMaxDelayMs", DEFAULT_CONFIG.stream.retryMaxDelayMs),
+        "stream.retryMaxDelayMs",
+      ),
+      stableAfterMs: parseRequiredPositiveNumber(
+        getOptionalNumber(stream, "stableAfterMs", DEFAULT_CONFIG.stream.stableAfterMs),
+        "stream.stableAfterMs",
+      ),
+      buffer: {
+        startupMs: parseRequiredPositiveNumber(
+          process.env.STREAM_BUFFER_STARTUP_MS ?? getOptionalNumber(buffer, "startupMs", DEFAULT_CONFIG.stream.buffer.startupMs),
+          "stream.buffer.startupMs",
+        ),
+        targetMs: parseRequiredPositiveNumber(
+          process.env.STREAM_BUFFER_TARGET_MS ?? getOptionalNumber(buffer, "targetMs", DEFAULT_CONFIG.stream.buffer.targetMs),
+          "stream.buffer.targetMs",
+        ),
+        lowWaterMs: parseRequiredPositiveNumber(
+          process.env.STREAM_BUFFER_LOW_WATER_MS ?? getOptionalNumber(buffer, "lowWaterMs", DEFAULT_CONFIG.stream.buffer.lowWaterMs),
+          "stream.buffer.lowWaterMs",
+        ),
+        resumeMs: parseRequiredPositiveNumber(
+          process.env.STREAM_BUFFER_RESUME_MS ?? getOptionalNumber(buffer, "resumeMs", DEFAULT_CONFIG.stream.buffer.resumeMs),
+          "stream.buffer.resumeMs",
+        ),
+      },
+      userAgent: getString(stream, "userAgent", DEFAULT_CONFIG.stream.userAgent),
+    },
+  };
+
+  validateBufferConfig(config.stream.buffer);
+
+  return {
+    config,
     configPath,
   };
 }
@@ -373,4 +408,24 @@ function normalizeX264Preset(value: string): X264Preset {
     throw new Error(`Unsupported stream.x264Preset: ${value}`);
   }
   return value as X264Preset;
+}
+
+function validateBufferConfig(buffer: AppConfig["stream"]["buffer"]): void {
+  if (buffer.lowWaterMs >= buffer.resumeMs) {
+    throw new Error(
+      "stream.buffer.lowWaterMs must be smaller than stream.buffer.resumeMs",
+    );
+  }
+
+  if (buffer.startupMs < buffer.lowWaterMs) {
+    throw new Error(
+      "stream.buffer.startupMs must be at least stream.buffer.lowWaterMs",
+    );
+  }
+
+  if (buffer.targetMs < buffer.resumeMs) {
+    throw new Error(
+      "stream.buffer.targetMs must be at least stream.buffer.resumeMs",
+    );
+  }
 }

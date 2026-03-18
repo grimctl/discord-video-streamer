@@ -16,7 +16,7 @@ paths:
           description: Unhealthy snapshot or gateway recovery in progress
   /status:
     get:
-      summary: Get current stream status
+      summary: Get current stream status and adaptive buffer state
       responses:
         '200':
           description: Current status and snapshot

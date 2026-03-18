@@ -3,10 +3,13 @@ import {
   Encoders,
   Streamer,
   Utils,
-  playStream,
   prepareStream,
 } from "@dank074/discord-video-stream";
 import { StageChannel, type Client, type Message } from "discord.js-selfbot-v13";
+import {
+  startBufferedPlayback,
+  type BufferedPlaybackHandle,
+} from "./buffered-playback.js";
 import type { AppConfig } from "./config.js";
 import {
   HealthReporter,
@@ -60,6 +63,7 @@ export class StreamSession {
   private runner?: Promise<void>;
   private lastMediaAt?: Date;
   private outputProfile?: OutputProfile;
+  private playback?: BufferedPlaybackHandle;
 
   constructor(
     private readonly client: Client,
@@ -179,6 +183,7 @@ export class StreamSession {
     this.runner = undefined;
     this.lastMediaAt = undefined;
     this.outputProfile = undefined;
+    this.playback = undefined;
     this.active = undefined;
     this.setState("idle");
     this.healthReporter.publish();
@@ -208,6 +213,13 @@ export class StreamSession {
       if (this.lastMediaAt) {
         lines.push(`Last Media: ${formatDuration(Date.now() - this.lastMediaAt.getTime())} ago`);
       }
+      const playbackSnapshot = this.playback?.getSnapshot();
+      if (playbackSnapshot) {
+        lines.push(`Buffer State: ${playbackSnapshot.state}`);
+        lines.push(`Buffered: ${formatBufferDuration(playbackSnapshot.bufferedMs)}`);
+        lines.push(`Rebuffers: ${playbackSnapshot.rebufferCount}`);
+        lines.push(`Buffer Target: ${formatBufferDuration(playbackSnapshot.targetMs)}`);
+      }
       const actualVoiceTarget = getCurrentVoiceTarget(this.client);
       if (actualVoiceTarget) {
         lines.push(`Current Voice: ${actualVoiceTarget.guildName} / ${actualVoiceTarget.channelName}`);
@@ -232,6 +244,7 @@ export class StreamSession {
       active.lastError = undefined;
       active.runningSince = undefined;
       this.lastMediaAt = undefined;
+      this.playback = undefined;
 
       const attemptController = new AbortController();
       const attemptSignal = AbortSignal.any([signal, attemptController.signal]);
@@ -294,7 +307,7 @@ export class StreamSession {
             bitrateVideoMax: this.config.stream.maxBitrateKbps,
             height: targetHeight,
             frameRate: targetFps,
-            minimizeLatency: true,
+            minimizeLatency: this.config.stream.minimizeLatency,
             videoCodec: Utils.normalizeVideoCodec("H264"),
             customInputOptions: buildStreamInputArgs(
               active.url,
@@ -308,28 +321,31 @@ export class StreamSession {
         this.attachFfmpegLogging(prepared.command, active.url, active.attempts);
         stopMediaTracking = this.trackMediaActivity(prepared.output);
 
-        const startup = waitForMedia(
-          prepared.output,
+        const playback = await startBufferedPlayback({
+          buffer: this.config.stream.buffer,
+          frameRate: targetFps,
+          height: targetHeight ?? probe?.height ?? 720,
+          input: prepared.output,
+          logger: this.logger,
+          signal: attemptSignal,
+          streamer: this.streamer,
+          width: chooseWidth(probe?.width, probe?.height, targetHeight),
+        });
+        this.playback = playback;
+        this.healthReporter.publish();
+
+        const startup = waitForPlaybackStart(
+          playback.started,
           this.config.stream.startupTimeoutMs,
           attemptSignal,
         );
 
-        const playing = playStream(
-          prepared.output,
-          this.streamer,
-          {
-            type: "go-live",
-            height: targetHeight,
-            frameRate: targetFps,
-            readrateInitialBurst: this.config.stream.readrateInitialBurst,
-          },
-          attemptSignal,
-        );
+        const playing = playback.completed;
 
         await Promise.race([
           startup,
           playing.then(() => {
-            throw new Error("Stream ended before media packets reached Discord");
+            throw new Error("Stream ended before buffered playback reached Discord");
           }),
         ]);
 
@@ -406,6 +422,7 @@ export class StreamSession {
         delayMs = Math.min(delayMs * 2, this.config.stream.retryMaxDelayMs);
       } finally {
         stopMediaTracking();
+        this.playback = undefined;
         this.healthReporter.publish();
       }
     }
@@ -507,6 +524,7 @@ export class StreamSession {
     this.runner = undefined;
     this.lastMediaAt = undefined;
     this.outputProfile = undefined;
+    this.playback = undefined;
     this.active = undefined;
     this.setState("idle", { reason });
     this.healthReporter.publish();
@@ -533,6 +551,7 @@ export class StreamSession {
             targetHeight: this.outputProfile?.targetHeight,
             targetFps: this.outputProfile?.targetFps ?? this.config.stream.maxFps,
             mediaStallTimeoutMs: this.config.stream.mediaStallTimeoutMs,
+            buffer: this.playback?.getSnapshot(),
             voiceTarget: this.active.voiceTarget,
           }
         : undefined,
@@ -633,6 +652,7 @@ export class StreamSession {
       lastMediaAgeMs: this.lastMediaAt
         ? Date.now() - this.lastMediaAt.getTime()
         : undefined,
+      playbackBuffer: this.playback?.getSnapshot(),
       voiceTarget: this.active.voiceTarget,
       actualVoiceTarget,
       outputProfile: this.outputProfile,
@@ -640,57 +660,33 @@ export class StreamSession {
   }
 }
 
-async function waitForMedia(
-  stream: NodeJS.ReadableStream,
+async function waitForPlaybackStart(
+  started: Promise<void>,
   timeoutMs: number,
   signal: AbortSignal,
 ): Promise<void> {
   signal.throwIfAborted();
 
-  await new Promise<void>((resolve, reject) => {
-    let settled = false;
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error(`No media received within ${timeoutMs}ms`));
-    }, timeoutMs);
+  await Promise.race([
+    started,
+    delay(timeoutMs, undefined, { signal }).then(() => {
+      throw new Error(
+        `Playback buffer did not reach startup threshold within ${timeoutMs}ms`,
+      );
+    }),
+  ]);
+}
 
-    const onAbort = () => {
-      cleanup();
-      reject(new Error("Streaming aborted"));
-    };
+function chooseWidth(
+  sourceWidth: number | undefined,
+  sourceHeight: number | undefined,
+  targetHeight: number | undefined,
+): number {
+  if (!sourceWidth || !sourceHeight || !targetHeight) {
+    return sourceWidth ?? 1280;
+  }
 
-    const onData = () => {
-      cleanup();
-      resolve();
-    };
-
-    const onEnd = () => {
-      cleanup();
-      reject(new Error("Media stream closed before playback started"));
-    };
-
-    const onError = (error: Error) => {
-      cleanup();
-      reject(error);
-    };
-
-    const cleanup = () => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timeout);
-      stream.off("data", onData);
-      stream.off("end", onEnd);
-      stream.off("error", onError);
-      signal.removeEventListener("abort", onAbort);
-    };
-
-    stream.once("data", onData);
-    stream.once("end", onEnd);
-    stream.once("error", onError);
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
+  return Math.max(2, Math.round((sourceWidth * targetHeight) / sourceHeight / 2) * 2);
 }
 
 function chooseHeight(sourceHeight?: number, maxHeight?: number): number | undefined {
@@ -801,6 +797,14 @@ function formatDuration(durationMs: number): string {
   const minutes = Math.floor((seconds % 3600) / 60);
   const remainder = seconds % 60;
   return `${hours}h ${minutes}m ${remainder}s`;
+}
+
+function formatBufferDuration(durationMs: number): string {
+  if (durationMs < 10_000) {
+    return `${(durationMs / 1000).toFixed(1)}s`;
+  }
+
+  return `${Math.round(durationMs / 1000)}s`;
 }
 
 function formatError(error: unknown): string {

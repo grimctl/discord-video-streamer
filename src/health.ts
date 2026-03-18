@@ -26,6 +26,18 @@ export type HealthSnapshot = {
     targetHeight?: number;
     targetFps?: number;
     mediaStallTimeoutMs: number;
+    buffer?: {
+      state: string;
+      bufferedMs: number;
+      videoBufferedMs: number;
+      audioBufferedMs?: number;
+      startupMs: number;
+      targetMs: number;
+      lowWaterMs: number;
+      resumeMs: number;
+      rebufferCount: number;
+      sourceEnded: boolean;
+    };
     voiceTarget: {
       guildId: string;
       guildName: string;

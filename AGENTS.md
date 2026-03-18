@@ -23,6 +23,7 @@ this file aligned with them.
 - Stream lifecycle: `src/stream-session.ts`
 - Config loading: `src/config.ts`
 - Probe helpers: `src/probe.ts`
+- Adaptive playback buffer: `src/buffered-playback.ts`
 - HTTP control API: `src/control-server.ts`
 - Logging: `src/logger.ts`
 - Health snapshot: `src/health.ts`
@@ -63,6 +64,10 @@ mise run check
 # or
 npm run check
 ```
+Run tests:
+```bash
+npm test
+```
 Run built app: `mise run start` or `npm run start`
 Run healthcheck: `npm run healthcheck` or `node build/healthcheck.js`
 Build Docker image: `mise run docker:build` or `docker build -t discord-video-streamer .`
@@ -77,10 +82,11 @@ docker run -d \
 ```
 
 ## CI-Equivalent Smoke Checks
-This repo currently has no unit/integration test framework.
-Use these smoke checks instead:
+This repo uses the built-in Node test runner for focused unit coverage plus the existing smoke checks.
+Use these commands:
 ```bash
 npm run check
+npm test
 node build/index.js config/example.jsonc
 docker run --rm discord-video-streamer:test ffmpeg -version
 docker run --rm discord-video-streamer:test ffprobe -version
@@ -90,21 +96,20 @@ The placeholder-config startup checks are expected to fail and mention the
 placeholder token.
 
 ## Single-Test Guidance
-There is no `npm test` and no single-test runner today.
-- Do not assume Jest, Vitest, or another framework exists.
-- There is no true "run one test" command yet.
-- For targeted validation, run the smallest relevant command:
+Tests compile into `build/**/*.test.js`.
+- Run all tests: `npm test`
+- Run one compiled test file: `npm run build && node --test build/config.test.js`
+- For targeted validation beyond tests, use the smallest relevant command:
   - `npm run typecheck`
   - `node build/index.js config/example.jsonc`
   - `node build/healthcheck.js` with a prepared health snapshot
-If a real test framework is added later, update this file with exact commands
-for all tests, watch mode, a single file, and a single case.
 
 ## Source Map
 - `src/index.ts`: startup, Discord client wiring, commands, gateway handling
 - `src/control-server.ts`: local HTTP API for play/stop/disconnect/status
 - `src/stream-session.ts`: retries, voice handling, stream state, heartbeat
 - `src/config.ts`: config defaults, validation, env overrides
+- `src/buffered-playback.ts`: adaptive packet buffer, playback gating, rebuffering
 - `src/probe.ts`: ffprobe and ffmpeg input options
 - `src/logger.ts`: structured console logger
 - `src/health.ts`: health snapshot write/read helpers

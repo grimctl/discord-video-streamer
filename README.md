@@ -1,8 +1,8 @@
 # Discord IPTV Streamer
 
-This is a fresh, stripped-down rewrite focused on one job: take an IPTV stream URL and keep it running in Discord as reliably as possible.
+This is a fresh, stripped-down rewrite focused on one job: take an IPTV stream URL and keep it running in Discord as reliably and smoothly as possible.
 
-It uses `@dank074/discord-video-stream` v6, software H.264 encoding, a small local control API, Discord command fallback, source probing, and endless retry with backoff for flaky IPTV feeds.
+It uses `@dank074/discord-video-stream` v6, software H.264 encoding, an adaptive playback buffer, a small local control API, Discord command fallback, source probing, and endless retry with backoff for flaky IPTV feeds.
 
 ## What It Does
 
@@ -12,6 +12,7 @@ It uses `@dank074/discord-video-stream` v6, software H.264 encoding, a small loc
 - Exposes a simple HTTP API for play/stop/disconnect/status control
 - Re-encodes to H.264 for Discord compatibility
 - Probes source resolution and FPS first so it does not upscale smaller IPTV feeds
+- Starts with a small playback cushion, keeps a larger best-effort buffer when possible, and re-buffers cleanly if the cushion runs low
 - Retries forever if the source drops or stalls
 - Restarts stalled streams and stops cleanly if the voice session is moved or disconnected unexpectedly
 - Builds cleanly into a GHCR-publishable Docker image
@@ -51,6 +52,12 @@ mise run build
 mise run start
 ```
 
+Run the local test suite:
+
+```bash
+npm test
+```
+
 ## Config
 
 Start from `config/example.jsonc`.
@@ -67,6 +74,10 @@ Important fields:
 - `stream.maxFps`: caps outgoing FPS for Discord
 - `stream.bitrateKbps` and `stream.maxBitrateKbps`: H.264 bitrate targets
 - `stream.x264Preset`: software encoder preset, default `veryfast`
+- `stream.minimizeLatency`: leave this `false` for IPTV smoothness; turning it on favors faster startup over playback stability
+- `stream.buffer.startupMs`: initial playback delay before Discord starts receiving media
+- `stream.buffer.targetMs`: best-effort steady cushion for absorbing short source/network hiccups
+- `stream.buffer.lowWaterMs` and `stream.buffer.resumeMs`: when to pause for rebuffering and when to resume playback
 - `stream.mediaStallTimeoutMs`: restarts streams that go silent without exiting
 - `stream.retryInitialDelayMs` and `stream.retryMaxDelayMs`: reconnect backoff
 
@@ -156,7 +167,8 @@ docker run -d \
 - While active, the app logs a periodic `Stream heartbeat` line with state, retries, voice target, and last media age.
 - If the Discord gateway reconnects, the active stream is stopped once, API mutations return `503`, and the process exits after 60s if the session does not recover.
 - If the Discord session is invalidated or disconnects permanently, the process exits so your supervisor can restart it cleanly.
-- `$status` is the quickest manual view of current state, retry count, output target, and last error.
+- `$status` is the quickest manual view of current state, retry count, output target, buffer depth, and last error.
+- The adaptive playback buffer starts after `startupMs`, aims for `targetMs` when the source allows it, and re-buffers below `lowWaterMs` until `resumeMs` is available again.
 - If Docker reports the container unhealthy, check recent logs for `Media output stalled`, `Voice target changed`, `FFmpeg process failed`, or `Stream attempt failed; retrying`.
 
 The included GitHub workflow publishes the image to `ghcr.io/<owner>/<repo>` on pushes to `main`.

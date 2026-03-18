@@ -35,6 +35,9 @@
     // Good software x264 preset for IPTV reliability.
     "x264Preset": "veryfast",
 
+    // Leave low latency off for smoother IPTV playback.
+    "minimizeLatency": false,
+
     // How long to wait for media packets before restarting the attempt.
     "startupTimeoutMs": 20000,
 
@@ -51,8 +54,13 @@
     // If a run survives this long, the retry backoff is reset.
     "stableAfterMs": 300000,
 
-    // Helps live streams start quickly.
-    "readrateInitialBurst": 10,
+    // Startup and recovery thresholds for the adaptive playback buffer.
+    "buffer": {
+      "startupMs": 10000,
+      "targetMs": 25000,
+      "lowWaterMs": 5000,
+      "resumeMs": 10000
+    },
 
     // Sent to Xtream and other HTTP-based IPTV endpoints.
     "userAgent": "Mozilla/5.0 (compatible; discord-video-streamer/0.1.0)"

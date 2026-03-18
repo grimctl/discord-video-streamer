@@ -6,10 +6,12 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "npm run typecheck && npm run build",
+    "check": "npm run typecheck && npm run build && npm run test:compiled",
     "dev": "tsx src/index.ts",
     "healthcheck": "node build/healthcheck.js",
     "start": "node build/index.js",
+    "test": "npm run build && npm run test:compiled",
+    "test:compiled": "node --test \"build/**/*.test.js\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "engines": {
