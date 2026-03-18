@@ -2,8 +2,9 @@ import process from "node:process";
 import { Client, type Message } from "discord.js-selfbot-v13";
 import { loadConfig } from "./config.js";
 import { startControlServer, type ControlServerHandle } from "./control-server.js";
+import { resumeStreamAfterGatewayRecovery } from "./gateway-resume.js";
 import { Logger } from "./logger.js";
-import { StreamSession } from "./stream-session.js";
+import { StreamSession, type StreamResumeCandidate } from "./stream-session.js";
 
 type ParsedCommand = {
   name: string;
@@ -26,6 +27,8 @@ async function main(): Promise<void> {
   let shuttingDown = false;
   let fatalGatewayExitInFlight = false;
   let gatewayRecovering = false;
+  let gatewayResumeCandidate: StreamResumeCandidate | undefined;
+  let gatewayResumeInFlight: Promise<void> | undefined;
   let gatewayRecoveryTimeout: NodeJS.Timeout | undefined;
   let gatewayRecoveryReason: string | undefined;
   let gatewayResetInFlight: Promise<void> | undefined;
@@ -50,11 +53,11 @@ async function main(): Promise<void> {
   }
 
   client.on("ready", () => {
-    clearGatewayRecovery("ready");
     logger.info("Discord client ready", {
       user: client.user?.tag,
       userId: client.user?.id,
     });
+    void handleGatewayRecovered("ready");
     void syncDisplayName(client, config.displayName, logger);
   });
 
@@ -69,6 +72,16 @@ async function main(): Promise<void> {
   client.on("shardReconnecting", (shardId) => {
     if (gatewayRecovering) {
       return;
+    }
+
+    gatewayResumeCandidate = session.getResumeCandidate();
+    if (gatewayResumeCandidate) {
+      logger.info("Captured active stream for gateway recovery", {
+        shardId,
+        guildId: gatewayResumeCandidate.voiceTarget.guildId,
+        channelId: gatewayResumeCandidate.voiceTarget.channelId,
+        url: gatewayResumeCandidate.url,
+      });
     }
 
     gatewayRecovering = true;
@@ -93,11 +106,11 @@ async function main(): Promise<void> {
   });
 
   client.on("shardResume", (shardId, replayedEvents) => {
-    clearGatewayRecovery("shardResume", {
+    logger.info("Discord shard resumed", {
       shardId,
       replayedEvents,
     });
-    logger.info("Discord shard resumed", {
+    void handleGatewayRecovered("shardResume", {
       shardId,
       replayedEvents,
     });
@@ -206,6 +219,42 @@ async function main(): Promise<void> {
     return gatewayResetInFlight;
   };
 
+  const handleGatewayRecovered = async (
+    event: string,
+    context: Record<string, unknown> = {},
+  ) => {
+    if (!gatewayRecovering) {
+      return;
+    }
+
+    if (gatewayResumeInFlight) {
+      return gatewayResumeInFlight;
+    }
+
+    gatewayResumeInFlight = (async () => {
+      await gatewayResetInFlight;
+
+      const candidate = gatewayResumeCandidate;
+      if (candidate) {
+        await resumeStreamAfterGatewayRecovery({
+          candidate,
+          context,
+          event,
+          logger,
+          session,
+          shouldContinue: () => !shuttingDown && gatewayRecovering,
+        });
+      }
+
+      gatewayResumeCandidate = undefined;
+      clearGatewayRecovery(event, context);
+    })().finally(() => {
+      gatewayResumeInFlight = undefined;
+    });
+
+    return gatewayResumeInFlight;
+  };
+
   const exitForFatalGatewayEvent = async (
     event: string,
     context: Record<string, unknown> = {},
@@ -215,6 +264,7 @@ async function main(): Promise<void> {
     }
 
     fatalGatewayExitInFlight = true;
+    gatewayResumeCandidate = undefined;
     clearGatewayRecovery(event);
 
     await resetSessionForGatewayEvent(event, context);
@@ -241,6 +291,7 @@ async function main(): Promise<void> {
 
     gatewayRecovering = false;
     gatewayRecoveryReason = undefined;
+    gatewayResumeCandidate = undefined;
 
     if (gatewayRecoveryTimeout) {
       clearTimeout(gatewayRecoveryTimeout);

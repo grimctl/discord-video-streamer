@@ -72,7 +72,7 @@ const DEFAULT_CONFIG: Omit<AppConfig, "token"> = {
     audioBitrateKbps: 128,
     x264Preset: "veryfast",
     minimizeLatency: false,
-    startupTimeoutMs: 20_000,
+    startupTimeoutMs: 45_000,
     mediaStallTimeoutMs: 45_000,
     probeTimeoutMs: 12_000,
     networkTimeoutMs: 30_000,
@@ -80,7 +80,7 @@ const DEFAULT_CONFIG: Omit<AppConfig, "token"> = {
     retryMaxDelayMs: 15_000,
     stableAfterMs: 300_000,
     buffer: {
-      startupMs: 10_000,
+      startupMs: 20_000,
       targetMs: 25_000,
       lowWaterMs: 5_000,
       resumeMs: 10_000,

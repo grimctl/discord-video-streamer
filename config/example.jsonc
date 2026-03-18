@@ -38,8 +38,8 @@
     // Leave low latency off for smoother IPTV playback.
     "minimizeLatency": false,
 
-    // How long to wait for media packets before restarting the attempt.
-    "startupTimeoutMs": 20000,
+    // Allow enough time to probe, transcode, and fill the startup buffer.
+    "startupTimeoutMs": 45000,
 
     // If no transcoded media is observed for this long, force a restart.
     "mediaStallTimeoutMs": 45000,
@@ -56,7 +56,7 @@
 
     // Startup and recovery thresholds for the adaptive playback buffer.
     "buffer": {
-      "startupMs": 10000,
+      "startupMs": 20000,
       "targetMs": 25000,
       "lowWaterMs": 5000,
       "resumeMs": 10000

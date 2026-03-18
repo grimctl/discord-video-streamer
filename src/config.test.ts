@@ -23,8 +23,9 @@ test("loads buffered playback defaults with low latency disabled", async (t) => 
   const { config } = await loadConfig(configPath);
 
   assert.equal(config.stream.minimizeLatency, false);
+  assert.equal(config.stream.startupTimeoutMs, 45_000);
   assert.deepEqual(config.stream.buffer, {
-    startupMs: 10_000,
+    startupMs: 20_000,
     targetMs: 25_000,
     lowWaterMs: 5_000,
     resumeMs: 10_000,

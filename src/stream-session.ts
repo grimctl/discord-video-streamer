@@ -27,6 +27,11 @@ export type VoiceTarget = {
   channelName: string;
 };
 
+export type StreamResumeCandidate = {
+  url: string;
+  voiceTarget: VoiceTarget;
+};
+
 type ActiveStream = {
   url: string;
   voiceTarget: VoiceTarget;
@@ -96,6 +101,24 @@ export class StreamSession {
   async startWithIds(guildId: string, channelId: string, url: string): Promise<void> {
     const voiceTarget = this.resolveVoiceTargetFromIds(guildId, channelId);
     await this.startWithVoiceTarget(voiceTarget, url);
+  }
+
+  async resumeFromCandidate(
+    candidate: StreamResumeCandidate,
+    context: Record<string, unknown> = {},
+  ): Promise<void> {
+    await this.startWithVoiceTarget(candidate.voiceTarget, candidate.url, context);
+  }
+
+  getResumeCandidate(): StreamResumeCandidate | undefined {
+    if (!this.active) {
+      return undefined;
+    }
+
+    return {
+      url: this.active.url,
+      voiceTarget: { ...this.active.voiceTarget },
+    };
   }
 
   getHealthSnapshot(): HealthSnapshot {

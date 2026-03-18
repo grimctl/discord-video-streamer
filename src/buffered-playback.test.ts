@@ -15,7 +15,7 @@ type TestHarness = {
 };
 
 const DEFAULT_BUFFER: PlaybackBufferSettings = {
-  startupMs: 10_000,
+  startupMs: 20_000,
   targetMs: 25_000,
   lowWaterMs: 5_000,
   resumeMs: 10_000,
@@ -24,8 +24,8 @@ const DEFAULT_BUFFER: PlaybackBufferSettings = {
 test("starts playback after reaching the startup buffer", async () => {
   const harness = createHarness();
 
-  harness.setVideo(10_000);
-  harness.setAudio(10_000);
+  harness.setVideo(20_000);
+  harness.setAudio(20_000);
   harness.controller.handleBufferUpdate();
 
   await harness.controller.started;
@@ -42,8 +42,8 @@ test("starts playback after reaching the startup buffer", async () => {
 test("re-buffers below low water and resumes at the resume threshold", async () => {
   const harness = createHarness();
 
-  harness.setVideo(10_000);
-  harness.setAudio(10_000);
+  harness.setVideo(20_000);
+  harness.setAudio(20_000);
   harness.controller.handleBufferUpdate();
   await harness.controller.started;
 

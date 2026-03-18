@@ -24,6 +24,7 @@ this file aligned with them.
 - Config loading: `src/config.ts`
 - Probe helpers: `src/probe.ts`
 - Adaptive playback buffer: `src/buffered-playback.ts`
+- Gateway resume helper: `src/gateway-resume.ts`
 - HTTP control API: `src/control-server.ts`
 - Logging: `src/logger.ts`
 - Health snapshot: `src/health.ts`
@@ -36,6 +37,8 @@ this file aligned with them.
   unless explicitly requested.
 - Prefer explicit state transitions and readable logs.
 - Stop cleanly on awkward edge cases instead of layering complex recovery.
+- Bounded, clearly logged auto-resume after Discord gateway recovery is acceptable
+  when it restores the same URL and voice target.
 - Keep operational behavior deterministic.
 
 ## Setup Commands
@@ -108,6 +111,7 @@ Tests compile into `build/**/*.test.js`.
 - `src/index.ts`: startup, Discord client wiring, commands, gateway handling
 - `src/control-server.ts`: local HTTP API for play/stop/disconnect/status
 - `src/stream-session.ts`: retries, voice handling, stream state, heartbeat
+- `src/gateway-resume.ts`: bounded auto-resume after Discord gateway recovery
 - `src/config.ts`: config defaults, validation, env overrides
 - `src/buffered-playback.ts`: adaptive packet buffer, playback gating, rebuffering
 - `src/probe.ts`: ffprobe and ffmpeg input options
@@ -201,6 +205,6 @@ Docker behavior, health behavior, or long-run operational semantics.
 - Reintroducing deleted legacy modules
 - Reintroducing removed local tooling by default
 - Multi-stream orchestration
-- Hidden auto-resume behavior that obscures stale voice state
+- Hidden or unbounded auto-resume behavior that obscures stale voice state
 - Secret-bearing config in git
 - Large refactors that do not clearly improve robustness
