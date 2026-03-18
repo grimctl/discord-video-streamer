@@ -2,6 +2,9 @@
   // Discord user token for the selfbot session.
   "token": "PASTE_DISCORD_USER_TOKEN_HERE",
 
+  // Global display name to apply after login.
+  "displayName": "bot",
+
   // Any non-bot user whose message is visible to this account can issue commands.
   "prefix": "$",
 

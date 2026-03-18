@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Discord IPTV Streamer Control API
   version: 0.1.0
-  description: Minimal local control API for discord-video-streamer.
+  description: Minimal local control API for discord-video-streamer. Runtime identity settings such as `displayName` live in `config.jsonc`.
 servers:
   - url: http://127.0.0.1:3000
 paths:

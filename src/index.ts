@@ -55,6 +55,7 @@ async function main(): Promise<void> {
       user: client.user?.tag,
       userId: client.user?.id,
     });
+    void syncDisplayName(client, config.displayName, logger);
   });
 
   client.on("error", (error) => {
@@ -394,6 +395,36 @@ function formatError(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+async function syncDisplayName(
+  client: Client,
+  displayName: string,
+  logger: Logger,
+): Promise<void> {
+  const desiredDisplayName = displayName.trim();
+  if (!desiredDisplayName || !client.user) {
+    return;
+  }
+
+  if (client.user.globalName === desiredDisplayName) {
+    logger.debug("Discord display name already configured", {
+      displayName: desiredDisplayName,
+    });
+    return;
+  }
+
+  try {
+    await client.user.setGlobalName(desiredDisplayName);
+    logger.info("Updated Discord display name", {
+      displayName: desiredDisplayName,
+    });
+  } catch (error) {
+    logger.warn("Failed updating Discord display name", {
+      displayName: desiredDisplayName,
+      error: formatError(error),
+    });
+  }
 }
 
 function createMutationRunner(

@@ -58,6 +58,7 @@ Start from `config/example.jsonc`.
 Important fields:
 
 - `token`: your Discord user token
+- `displayName`: global display name to set after login, defaults to `bot`
 - `prefix`: message prefix, defaults to `$`
 - `api.enabled`: enable the local control API
 - `api.host`: API bind address, defaults to `127.0.0.1`
@@ -69,7 +70,7 @@ Important fields:
 - `stream.mediaStallTimeoutMs`: restarts streams that go silent without exiting
 - `stream.retryInitialDelayMs` and `stream.retryMaxDelayMs`: reconnect backoff
 
-You can also override the basics with env vars like `DISCORD_TOKEN`, `COMMAND_PREFIX`, `LOG_LEVEL`, `API_ENABLED`, `API_HOST`, and `API_PORT`.
+You can also override the basics with env vars like `DISCORD_TOKEN`, `DISCORD_DISPLAY_NAME`, `COMMAND_PREFIX`, `LOG_LEVEL`, `API_ENABLED`, `API_HOST`, and `API_PORT`.
 
 ## HTTP API
 
@@ -149,6 +150,7 @@ docker run -d \
 ## Long-Run Operation
 
 - Use `logging.level = "info"` for normal operation and switch to `debug` only when investigating feed or voice issues.
+- The app applies `displayName` on startup if the current global display name differs.
 - The local control API defaults to `127.0.0.1:3000` with no auth; keep it on localhost unless you have an external access-control layer.
 - The app writes a health snapshot to `/tmp/discord-video-streamer/health.json`; the container `HEALTHCHECK` reads that file.
 - While active, the app logs a periodic `Stream heartbeat` line with state, retries, voice target, and last media age.

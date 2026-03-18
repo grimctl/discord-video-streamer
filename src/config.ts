@@ -18,6 +18,7 @@ export type X264Preset =
 
 export type AppConfig = {
   token: string;
+  displayName: string;
   prefix: string;
   api: {
     enabled: boolean;
@@ -47,6 +48,7 @@ export type AppConfig = {
 };
 
 const DEFAULT_CONFIG: Omit<AppConfig, "token"> = {
+  displayName: "bot",
   prefix: "$",
   api: {
     enabled: true,
@@ -111,6 +113,10 @@ export async function loadConfig(explicitPath?: string): Promise<{
     process.env.DISCORD_TOKEN ??
     getString(parsed, "token", undefined, { required: true });
 
+  const displayName =
+    process.env.DISCORD_DISPLAY_NAME ??
+    getString(parsed, "displayName", DEFAULT_CONFIG.displayName);
+
   if (token == "PASTE_DISCORD_USER_TOKEN_HERE") {
     throw new Error(
       `Config file still contains the placeholder token: ${configPath}`,
@@ -130,6 +136,7 @@ export async function loadConfig(explicitPath?: string): Promise<{
   return {
     config: {
       token,
+      displayName,
       prefix,
       api: {
         enabled: parseBoolean(
