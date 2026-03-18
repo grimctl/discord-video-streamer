@@ -152,7 +152,8 @@ docker run -d \
 - The local control API defaults to `127.0.0.1:3000` with no auth; keep it on localhost unless you have an external access-control layer.
 - The app writes a health snapshot to `/tmp/discord-video-streamer/health.json`; the container `HEALTHCHECK` reads that file.
 - While active, the app logs a periodic `Stream heartbeat` line with state, retries, voice target, and last media age.
-- If the Discord gateway reconnects or the session is invalidated, the active stream is stopped instead of trying to auto-resume a possibly stale voice session.
+- If the Discord gateway reconnects, the active stream is stopped once, API mutations return `503`, and the process exits after 60s if the session does not recover.
+- If the Discord session is invalidated or disconnects permanently, the process exits so your supervisor can restart it cleanly.
 - `$status` is the quickest manual view of current state, retry count, output target, and last error.
 - If Docker reports the container unhealthy, check recent logs for `Media output stalled`, `Voice target changed`, `FFmpeg process failed`, or `Stream attempt failed; retrying`.
 

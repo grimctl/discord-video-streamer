@@ -16,16 +16,25 @@ type MutationRunner = <T>(
   operation: () => Promise<T>,
 ) => Promise<T>;
 
+const GATEWAY_RECOVERY_TIMEOUT_MS = 60_000;
+
 async function main(): Promise<void> {
   const { config, configPath } = await loadConfig(process.argv[2]);
   const logger = new Logger(config.logging.level);
   const client = new Client();
   const session = new StreamSession(client, config, logger);
-  const runMutation = createMutationRunner(logger);
   let shuttingDown = false;
   let fatalGatewayExitInFlight = false;
+  let gatewayRecovering = false;
+  let gatewayRecoveryTimeout: NodeJS.Timeout | undefined;
+  let gatewayRecoveryReason: string | undefined;
   let gatewayResetInFlight: Promise<void> | undefined;
   let controlServer: ControlServerHandle | undefined;
+  const getGatewayBlockReason = () =>
+    gatewayRecovering
+      ? gatewayRecoveryReason ?? "discord gateway is reconnecting"
+      : undefined;
+  const runMutation = createMutationRunner(logger, getGatewayBlockReason);
 
   logger.info("Loaded configuration", { configPath, prefix: config.prefix });
 
@@ -33,6 +42,7 @@ async function main(): Promise<void> {
     controlServer = startControlServer({
       client,
       config: config.api,
+      getGatewayBlockReason,
       logger,
       runMutation,
       session,
@@ -40,6 +50,7 @@ async function main(): Promise<void> {
   }
 
   client.on("ready", () => {
+    clearGatewayRecovery("ready");
     logger.info("Discord client ready", {
       user: client.user?.tag,
       userId: client.user?.id,
@@ -55,13 +66,36 @@ async function main(): Promise<void> {
   });
 
   client.on("shardReconnecting", (shardId) => {
+    if (gatewayRecovering) {
+      return;
+    }
+
+    gatewayRecovering = true;
+    gatewayRecoveryReason = `discord gateway is reconnecting on shard ${shardId}`;
+    gatewayRecoveryTimeout = setTimeout(() => {
+      logger.error("Discord gateway recovery timed out; exiting for restart", {
+        shardId,
+        timeoutMs: GATEWAY_RECOVERY_TIMEOUT_MS,
+      });
+      void exitForFatalGatewayEvent("gatewayRecoveryTimeout", {
+        shardId,
+        timeoutMs: GATEWAY_RECOVERY_TIMEOUT_MS,
+      });
+    }, GATEWAY_RECOVERY_TIMEOUT_MS);
+    gatewayRecoveryTimeout.unref();
+
     logger.warn("Discord shard reconnecting; stopping active stream", {
       shardId,
+      timeoutMs: GATEWAY_RECOVERY_TIMEOUT_MS,
     });
     void resetSessionForGatewayEvent("shardReconnecting", { shardId });
   });
 
   client.on("shardResume", (shardId, replayedEvents) => {
+    clearGatewayRecovery("shardResume", {
+      shardId,
+      replayedEvents,
+    });
     logger.info("Discord shard resumed", {
       shardId,
       replayedEvents,
@@ -129,6 +163,7 @@ async function main(): Promise<void> {
       return;
     }
     shuttingDown = true;
+    clearGatewayRecovery(signal);
     logger.info("Shutting down", { signal });
     await session.stop(true);
     await controlServer?.close().catch((error: unknown) => {
@@ -179,6 +214,7 @@ async function main(): Promise<void> {
     }
 
     fatalGatewayExitInFlight = true;
+    clearGatewayRecovery(event);
 
     await resetSessionForGatewayEvent(event, context);
     shuttingDown = true;
@@ -192,6 +228,28 @@ async function main(): Promise<void> {
     });
 
     process.exit(1);
+  };
+
+  const clearGatewayRecovery = (
+    event: string,
+    context: Record<string, unknown> = {},
+  ) => {
+    if (!gatewayRecovering) {
+      return;
+    }
+
+    gatewayRecovering = false;
+    gatewayRecoveryReason = undefined;
+
+    if (gatewayRecoveryTimeout) {
+      clearTimeout(gatewayRecoveryTimeout);
+      gatewayRecoveryTimeout = undefined;
+    }
+
+    logger.info("Discord gateway recovery ended", {
+      event,
+      ...context,
+    });
   };
 
   process.on("SIGINT", () => {
@@ -338,7 +396,10 @@ function formatError(error: unknown): string {
   return String(error);
 }
 
-function createMutationRunner(logger: Logger): MutationRunner {
+function createMutationRunner(
+  logger: Logger,
+  getBlockReason: () => string | undefined,
+): MutationRunner {
   let queue = Promise.resolve();
 
   return async <T>(
@@ -347,6 +408,11 @@ function createMutationRunner(logger: Logger): MutationRunner {
     operation: () => Promise<T>,
   ): Promise<T> => {
     const run = async () => {
+      const blockReason = getBlockReason();
+      if (blockReason) {
+        throw new Error(blockReason);
+      }
+
       logger.info("Starting control mutation", {
         action,
         ...context,

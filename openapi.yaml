@@ -13,7 +13,7 @@ paths:
         '200':
           description: Healthy snapshot
         '503':
-          description: Unhealthy snapshot
+          description: Unhealthy snapshot or gateway recovery in progress
   /status:
     get:
       summary: Get current stream status
@@ -43,16 +43,20 @@ paths:
         '400':
           description: Invalid request body
         '503':
-          description: Discord client not ready
+          description: Discord client not ready or gateway recovery in progress
   /stop:
     post:
       summary: Stop the active stream and stay in voice
       responses:
         '200':
           description: Stop processed
+        '503':
+          description: Gateway recovery in progress
   /disconnect:
     post:
       summary: Stop the active stream and leave voice
       responses:
         '200':
           description: Disconnect processed
+        '503':
+          description: Gateway recovery in progress

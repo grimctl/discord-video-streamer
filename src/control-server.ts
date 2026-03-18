@@ -14,6 +14,7 @@ type ControlMutationRunner = <T>(
 type ControlServerOptions = {
   client: Client;
   config: AppConfig["api"];
+  getGatewayBlockReason: () => string | undefined;
   logger: Logger;
   runMutation: ControlMutationRunner;
   session: StreamSession;
@@ -30,6 +31,7 @@ const MAX_BODY_BYTES = 32 * 1024;
 export function startControlServer({
   client,
   config,
+  getGatewayBlockReason,
   logger,
   runMutation,
   session,
@@ -43,15 +45,20 @@ export function startControlServer({
       if (request.method === "GET" && pathname === "/healthz") {
         const snapshot = session.getHealthSnapshot();
         const health = evaluateHealthSnapshot(snapshot);
-        return sendJson(response, health.ok ? 200 : 503, {
-          ok: health.ok,
-          reason: health.reason,
+        const gatewayBlockReason = getGatewayBlockReason();
+        const ok = health.ok && gatewayBlockReason === undefined;
+        const reason = gatewayBlockReason ?? health.reason;
+
+        return sendJson(response, ok ? 200 : 503, {
+          ok,
+          reason,
           snapshot,
         });
       }
 
       if (request.method === "GET" && pathname === "/status") {
         return sendJson(response, 200, {
+          gatewayBlockedReason: getGatewayBlockReason(),
           snapshot: session.getHealthSnapshot(),
           status: session.getStatus(),
         });
@@ -62,6 +69,13 @@ export function startControlServer({
         const urlValue = getRequiredString(body, "url");
         const guildId = getRequiredString(body, "guildId");
         const channelId = getRequiredString(body, "channelId");
+        const gatewayBlockReason = getGatewayBlockReason();
+
+        if (gatewayBlockReason) {
+          return sendJson(response, 503, {
+            error: gatewayBlockReason,
+          });
+        }
 
         if (!client.user) {
           return sendJson(response, 503, {
@@ -95,6 +109,13 @@ export function startControlServer({
       }
 
       if (request.method === "POST" && pathname === "/stop") {
+        const gatewayBlockReason = getGatewayBlockReason();
+        if (gatewayBlockReason) {
+          return sendJson(response, 503, {
+            error: gatewayBlockReason,
+          });
+        }
+
         logger.info("Handling API stop request", { remoteAddress });
         const stopped = await runMutation(
           "api.stop",
@@ -111,6 +132,13 @@ export function startControlServer({
       }
 
       if (request.method === "POST" && pathname === "/disconnect") {
+        const gatewayBlockReason = getGatewayBlockReason();
+        if (gatewayBlockReason) {
+          return sendJson(response, 503, {
+            error: gatewayBlockReason,
+          });
+        }
+
         logger.info("Handling API disconnect request", { remoteAddress });
         const disconnected = await runMutation(
           "api.disconnect",
@@ -128,6 +156,7 @@ export function startControlServer({
 
       if (request.method === "GET" && pathname === "/") {
         return sendJson(response, 200, {
+          gatewayBlockedReason: getGatewayBlockReason(),
           name: "discord-video-streamer-control-api",
           endpoints: [
             "GET /healthz",
